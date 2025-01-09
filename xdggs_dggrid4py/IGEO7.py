@@ -31,27 +31,26 @@ from pyproj import Transformer
 try:
     import pymp
 except ImportError:
-    import contextlib.nullcontext as nullcontext
+    from contextlib import nullcontext
 
 try:
     dggrid_path = os.environ['DGGRID_PATH']
 except KeyError:
-    raise Exception("DGGRD_PATH env var not found")
+    raise Exception("DGGRID_PATH env var not found")
 
 @dataclass(frozen=True)
 class IGEO7Info(DGGSInfo):
-    resolution: int
     src_epsg: str
     coordinate: list
     method: str
     mp: int
     step: int
-    dggs_type: str
+    grid_name: str
 
-    valid_parameters: ClassVar[dict[str, Any]] = {"resolution": range(-1, 15), "method": ["centerpoint", "nearestpoint"]}
+    valid_parameters: ClassVar[dict[str, Any]] = {"level": range(-1, 15), "method": ["centerpoint", "nearestpoint"]}
 
     def __post_init__(self):
-        if (self.resolution not in self.valid_parameters['resolution']):
+        if (self.level not in self.valid_parameters['level']):
             raise ValueError("resolution must be an integer between 0 and 15")
         if self.method.lower() not in self.valid_parameters["method"]:
             raise ValueError("method {self.method.lower()} is not defined.")
@@ -62,8 +61,8 @@ class IGEO7Info(DGGSInfo):
         return cls(**params)
 
     def to_dict(self: Self) -> dict[str, Any]:
-        return {"resolution": self.resolution, "src_epsg": self.src_epsg, "coordinate": self.coordinate,
-                "dggs_type": self.dggs_type, "method": self.method, "mp": self.mp, "step": self.step}
+        return {"level": self.level, "src_epsg": self.src_epsg, "coordinate": self.coordinate,
+                "grid_name": self.grid_name, "method": self.method, "mp": self.mp, "step": self.step}
 
     def cell_ids2geographic(
         self, cell_ids: np.ndarray
@@ -71,9 +70,9 @@ class IGEO7Info(DGGSInfo):
         working_dir = tempfile.mkdtemp()
         dggrid = DGGRIDv7(dggrid_path, working_dir=working_dir)
         res = dggrid.guess_zstr_resolution(cell_ids[0], 'IGEO7', input_address_type='Z7_STRING')['resolution'][0]
-        centroids_df = dggrid.grid_cell_centroids_from_cellids(cellids, 'IGEO7', res, input_address_type='Z7_STRING', output_address_type='Z7_STRING')
+        centroids_df = dggrid.grid_cell_centroids_from_cellids(cell_ids, 'IGEO7', res, input_address_type='Z7_STRING', output_address_type='Z7_STRING')
         centroids = centroids_df.geometry.get_coordinates()
-        return (centroids['x'].values, centroids['y'].values])
+        return (centroids['x'].values, centroids['y'].values)
 
     def geographic2cell_ids(self, lon, lat):
         if (len(lon) != len(lat)):
@@ -83,7 +82,7 @@ class IGEO7Info(DGGSInfo):
         centroids = gpd.GeoDataFrame([0]*len(centroids), geometry=centroids, crs='wgs84')
         working_dir = tempfile.mkdtemp()
         dggrid = DGGRIDv7(dggrid_path, working_dir=working_dir)
-        centroids = dggrid.cells_for_geo_points(centroids, True, 'IGEO7', self.resolution, output_address_type='Z7_STRING')
+        centroids = dggrid.cells_for_geo_points(centroids, True, 'IGEO7', self.level, output_address_type='Z7_STRING')
         return centroids['name'].values
 
 
@@ -102,9 +101,9 @@ class IGEO7Index(DGGSIndex):
         super().__init__(cell_ids, dim, grid_info)
 
     @classmethod
-    def _get_dggrid_instance():
+    def _get_dggrid_instance(cls: type["IGEO7Index"]):
         working_dir = tempfile.mkdtemp()
-        return DGGRIDv7(dggrid_path, working_dir=working_dir)
+        return DGGRIDv7(dggrid_path, working_dir=working_dir, silent=True)
 
     @classmethod
     def from_variables(
@@ -114,15 +113,15 @@ class IGEO7Index(DGGSIndex):
         options: Mapping[str, Any],
     ) -> "IGEO7Index":
         # name, var, _ = _extract_cell_id_variable(variables)
-        igeo7 = [k for k in variables.keys() if (variables[k].attrs.get('dggs_type') == 'IGEO7')]
+        igeo7 = [k for k in variables.keys() if (variables[k].attrs.get('grid_name') == 'igeo7')]
         var = variables[igeo7[0]]
         if (type(var.data) is np.ndarray):
             if (var.data.dtype == str):
                 return cls(var.data, 'cell_ids', IGEO7Info.from_dict(var.attrs))
         # For using stack assume the coordinate is in x, y ordering
         # prepare to generate hexagon grid
-        resolution = var.attrs.get("resolution", options.get("resolution", -1))
-        dggs_type = var.attrs.get("dggs_type", options.get("dggs_type", 'IGEO7')).upper()
+        resolution = var.attrs.get("level", options.get("level", -1))
+        grid_name = var.attrs.get("grid_name", options.get("grid_name", 'igeo7')).upper()
         coords = var.attrs.get('coordinate', options.get('coordinate'))
         src_epsg = var.attrs.get("src_epsg", options.get("src_epsg", "wgs84"))
         method = var.attrs.get("method", options.get("method", "nearestpoint"))
@@ -130,11 +129,12 @@ class IGEO7Index(DGGSIndex):
         step = var.attrs.get("trunk", options.get('trunk', (250000, 250000))) if (mp > 1) else var.data.shape
         x = variables[coords[0]].data
         y = variables[coords[1]].data
+        step = var.attrs.get("trunk", options.get('trunk', (250000, 250000))) if (mp > 1) else (len(x), len(y))
         executable = os.environ['DGGRID_PATH']
         reproject = Transformer.from_crs(src_epsg, 'wgs84', always_xy=True)
         print(f'x shape: ({x.shape}), y shape: ({y.shape})')
-        if (dggs_type not in dggs_types):
-            raise ValueError(f"{dggs_type} is not defined in DGGRID")
+        if (grid_name not in dggs_types):
+            raise ValueError(f"{grid_name} is not defined in DGGRID")
         cellids = None
         x_batch = int(np.ceil(x.shape[0] / step[0]))
         y_batch = int(np.ceil(y.shape[0] / step[1]))
@@ -143,34 +143,34 @@ class IGEO7Index(DGGSIndex):
         job, job1 = np.broadcast_arrays(job, job1[:, None])
         job = np.stack([job, job1], axis=-1).reshape(-1, 2)
         del (job1)
-        y_offset = step * step
+        y_offset = step[1] * step[1]
         # Auto Resolution
         if (resolution == -1):
             maxlat, minlat, maxlng, minlng = np.max(y), np.min(y), np.max(x), np.min(x)
-            resolution = cls._autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, (x.shape[0] * y.shape[0]), dggs_type)
+            resolution = cls._autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, (x.shape[0] * y.shape[0]), grid_name)
         # Generate Cells ID
         with tempfile.NamedTemporaryFile() as ntf:
-            cellids = np.memmap(ntf, mode='w+', shape=(x.shape[0] * y.shape[0]), dtype=str)
+            cellids = np.memmap(ntf, mode='w+', shape=(x.shape[0] * y.shape[0]), dtype='U34')
         start = time.time()
         print(f"--- Multiprocessing {mp} ---")
         cm = pymp.Parallel(mp) if ('pymp' in sys.modules) else nullcontext()
         with cm as p:
-            for b in tqdm(p.range(len(job)) if (isinstance(cm, nullcontext())) else range(len(job))):
+            for b in tqdm(p.range(len(job)) if (isinstance(p, type(nullcontext()))) else range(len(job))):
                 i, j = job[b][0], job[b][1]
-                end = (i * step) + step if (((i * step) + step) < x.shape[0]) else x.shape[0]
-                y_end = (j * step) + step if (((j * step) + step) < y.shape[0]) else y.shape[0]
-                offset = i * (y.shape[0] * step)
-                x_trunk, y_trunk = np.broadcast_arrays(x[(i * step):end],  y[(j * step):y_end, None])
+                end = (i * step[0]) + step[0] if (((i * step[0]) + step[0]) < x.shape[0]) else x.shape[0]
+                y_end = (j * step[1]) + step[1] if (((j * step[1]) + step[1]) < y.shape[0]) else y.shape[0]
+                offset = i * (y.shape[0] * step[1])
+                x_trunk, y_trunk = np.broadcast_arrays(x[(i * step[0]):end],  y[(j * step[1]):y_end, None])
                 x_trunk = np.stack([x_trunk, y_trunk], axis=-1).reshape(-1, 2)
                 x_trunk[:, 0], x_trunk[:, 1] = reproject.transform(x_trunk[:, 0], x_trunk[:, 1])
                 del y_trunk
-                dggs = _get_dggrid_instance()
+                dggs = cls._get_dggrid_instance()
                 # nearestpoint
                 if (method.lower() == 'nearestpoint'):
                     print(f"---Generate Cell ID with resolution -1 by nearestpoint method, x batch:{x_batch}, y batch:{y_batch}---")
                     maxlat, minlat, maxlng, minlng = np.max(x_trunk[:, 1]), np.min(x_trunk[:, 1]), np.max(x_trunk[:, 0]), np.min(x_trunk[:, 0])
                     truck_df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs='wgs84')
-                    result = dggs.grid_cell_centroids_for_extent(dggs_type, resolution, clip_geom=truck_df.geometry.values[0],
+                    result = dggs.grid_cell_centroids_for_extent(grid_name, resolution, clip_geom=truck_df.geometry.values[0],
                                                                  output_address_type='Z7_STRING')
                     centroids = result.geometry.get_coordinates()
                     centroids = np.stack([centroids['x'].values, centroids['y'].values], axis=-1)
@@ -181,20 +181,24 @@ class IGEO7Index(DGGSIndex):
                 elif (method.lower() == 'centerpoint'):
                     print(f"---Generate Cell ID with resolution -1 by centerpoint method x batch:{x_batch}, y batch:{y_batch}---")
                     df = gpd.GeoDataFrame([0] * x_trunk.shape[0], geometry=gpd.points_from_xy(x_trunk[:, 0], x_trunk[:, 1]), crs=src_epsg)
-                    result = dggs.cells_for_geo_points(df, True, dggs_type, resolution, output_address_type='Z7_STRING')
+                    result = dggs.cells_for_geo_points(df, True, grid_name, resolution, output_address_type='Z7_STRING')
                     cells = result['name'].values.astype(str)
                 # handling for x-axis boundary case
                 yoff = y_offset if (i != (x_batch - 1)) else x_trunk.shape[0]
                 # handling for x and y axis boundary case (top right corner)
-                yoff = (x[(i * step):end].shape[0] * step) if ((i == (x_batch - 1)) and (j == (y_batch - 1))) else yoff
+                yoff = (x[(i * step[0]):end].shape[0] * step[0]) if ((i == (x_batch - 1)) and (j == (y_batch - 1))) else yoff
                 cellids[offset + (j * yoff):((offset + (j * yoff)) + x_trunk.shape[0])] = cells
                 cellids.flush()
             print(f'cell generation time: ({time.time()-start})')
         print(f'Cell ID calcultion completed, unique cell id :{np.unique(cellids).shape[0]}')
-        arrts = {'resolution': resolution, 'src_epsg': src_epsg, 'coordinate': coords, 'method': method,
-                 'mp': mp, 'step': step, 'dggs_type': dggs_type}
+        arrts = {'level': resolution, 'src_epsg': src_epsg, 'coordinate': coords, 'method': method,
+                 'mp': mp, 'step': step, 'grid_name': grid_name}
         grid_info = IGEO7Info.from_dict(arrts | options)
         return cls(cellids, 'cell_ids', grid_info)
+
+    @classmethod
+    def stack(cls, variables: Mapping[Any, xr.Variable], dim: Hashable):
+        return cls.from_variables(variables, options={})
 
     def concat(self, indexes: Sequence[Self], dim: Hashable, positions: Iterable[Iterable[int]] | None = None) -> Self:
         attrs = indexes[0]._grid.to_dict()
@@ -209,7 +213,7 @@ class IGEO7Index(DGGSIndex):
         return idx_variables
 
     def _repr_inline_(self, max_width: int):
-        return f"ISEAIndex(dgg_type={self._grid.dggs_type}, resolution={self._grid.resolution})"
+        return f"ISEAIndex(grid_name={self._grid.grid_name}, resolution={self._grid.resolution})"
 
     def sel(self, labels, method=None, tolerance=None):
         if method == "nearest":
@@ -224,7 +228,6 @@ class IGEO7Index(DGGSIndex):
 
     def to_pandas_index(self):
         return self._pd_index.index
-
 
     def cell_centers(self, cell_ids: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
         mp = False if (importlib.util.find_spec('pymp') is None) else True
@@ -241,13 +244,13 @@ class IGEO7Index(DGGSIndex):
                 for i in tqdm(p.range(batch)):
                     end = (i*step)+step if (((i*step)+step) < data.shape[0]) else data.shape[0]
                     trunk = data[(i*step):end]
-                    df = dggs.grid_cell_centroids_from_cellids(trunk, self._grid.dggs_type, self._grid.resolution,
+                    df = dggs.grid_cell_centroids_from_cellids(trunk, self._grid.grid_name, self._grid.resolution,
                                                                                 input_address_type='Z7_STRING', output_address_type='Z7_STRING')
                     ps = df['geometry'].values
                     ps = np.array([[p.x, p.y] for p in ps])
                     points[(i*step):end] = ps
         else:
-            df = dggs.grid_centerpoint_from_cellids(self._pd_index.index, self._grid.dggs_type, self._grid.resolution,
+            df = dggs.grid_centerpoint_from_cellids(self._pd_index.index, self._grid.grid_name, self._grid.resolution,
                                                                      input_address_type='Z7_STRING', output_address_type='Z7_STRING')
             points = df['geometry'].values
             points = np.array([[p.x, p.y] for p in points])
@@ -268,12 +271,12 @@ class IGEO7Index(DGGSIndex):
                 for i in tqdm(p.range(batch)):
                     end = (i*step)+step if (((i*step)+step) < data.shape[0]) else data.shape[0]
                     trunk = data[(i*step):end]
-                    df = dggs.grid_cell_polygons_from_cellids(trunk, self._grid.dggs_type, self._grid.resolution,
+                    df = dggs.grid_cell_polygons_from_cellids(trunk, self._grid.grid_name, self._grid.resolution,
                                                                                input_address_type='Z7_STRING', output_address_type='Z7_STRING')
                     geometryDF.append(df)
             geometryDF = gpd.GeoDataFrame(pd.concat( geometryDF, ignore_index=True))
         else:
-            geometryDF = dggs.grid_cell_polygons_from_cellids(data, self._grid.dggs_type, self._grid.resolution,
+            geometryDF = dggs.grid_cell_polygons_from_cellids(data, self._grid.grid_name, self._grid.resolution,
                                                                                input_address_type='Z7_STRING', output_address_type='Z7_STRING')
         return geometryDF['geometry'].values
 
@@ -285,13 +288,12 @@ class IGEO7Index(DGGSIndex):
         except Exception as e:
             print(f'Invalid Extend : {e}')
         geoobj = shapely.ops.transform(transformer, geoobj)
-        df = dggs.grid_cellids_for_extent(self._grid.dggs_type, self._grid.resolution, clip_geom=geoobj, output_address_type='Z7_STRING')
+        df = dggs.grid_cellids_for_extent(self._grid.grid_name, self._grid.resolution, clip_geom=geoobj, output_address_type='Z7_STRING')
         return df
 
-
     @classmethod
-    def _autoResolution(cls: type["IGEO7Index"], minlng, minlat, maxlng, maxlat, src_epsg, num_data, dggs_type):
-        dggs = cls._get_dggrid_instance
+    def _autoResolution(cls: type["IGEO7Index"], minlng, minlat, maxlng, maxlat, src_epsg, num_data, grid_name):
+        dggs = cls._get_dggrid_instance()
         print('Calculate Auto resolution')
         print(f'{minlat},{minlng},{maxlat},{maxlng}')
         df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
@@ -307,7 +309,7 @@ class IGEO7Index(DGGSIndex):
         print(f'Total Bounds Area (km^2): {area}')
         avg_area_per_data = (area / num_data)
         print(f'Area per center point (km^2): {avg_area_per_data}')
-        dggrid_resolution = dggs.grid_stats_table(dggs_type, 30)
+        dggrid_resolution = dggs.grid_stats_table('ISEA7H', 30)
         filter_ = dggrid_resolution[dggrid_resolution['Area (km^2)'] < avg_area_per_data]
         resolution = 5
         if (len(filter_) > 0):
