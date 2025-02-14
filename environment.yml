@@ -2,11 +2,9 @@ name: xdggs_dev
 channels:
   - conda-forge
 dependencies:
-  - xdggs
-  - shapely
-  - gdal==3.6.2
-  - proj==9.1.0
-  - numpy==1.24.1
+  - python
+  - gdal
+  - proj
+  - dggrid
   - poetry
-  - pys2index
   - pip
