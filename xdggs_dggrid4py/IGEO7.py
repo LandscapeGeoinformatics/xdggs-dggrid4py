@@ -121,15 +121,15 @@ class IGEO7Index(DGGSIndex):
         # For using stack assume the coordinate is in x, y ordering
         # prepare to generate hexagon grid
         resolution = var.attrs.get("level", options.get("level", -1))
-        grid_name = var.attrs.get("grid_name", options.get("grid_name", 'IGEO')).upper()
+        grid_name = var.attrs.get("grid_name", options.get("grid_name", 'IGEO7')).upper()
         coords = var.attrs.get('coordinate', options.get('coordinate'))
         src_epsg = var.attrs.get("src_epsg", options.get("src_epsg", "wgs84"))
         method = var.attrs.get("method", options.get("method", "nearestpoint"))
         mp = var.attrs.get("mp", options.get('mp', 1)) if ('pymp' in sys.modules) else 1
-        step = var.attrs.get("trunk", options.get('trunk', (250000, 250000))) if (mp > 1) else var.data.shape
+        # step = var.attrs.get("chunk", options.get('chunk', (250000, 250000))) if (mp > 1) else var.data.shape
         x = variables[coords[0]].data
         y = variables[coords[1]].data
-        step = var.attrs.get("trunk", options.get('trunk', (250000, 250000))) if (mp > 1) else (len(x), len(y))
+        step = var.attrs.get("chunk", options.get('chunk', (250000, 250000))) if (mp > 1) else (len(x), len(y))
         reproject = Transformer.from_crs(src_epsg, 'wgs84', always_xy=True)
         print(f'x shape: ({x.shape}), y shape: ({y.shape})')
         if (grid_name not in dggs_types):
@@ -159,36 +159,36 @@ class IGEO7Index(DGGSIndex):
                 end = (i * step[0]) + step[0] if (((i * step[0]) + step[0]) < x.shape[0]) else x.shape[0]
                 y_end = (j * step[1]) + step[1] if (((j * step[1]) + step[1]) < y.shape[0]) else y.shape[0]
                 offset = i * (y.shape[0] * step[1])
-                x_trunk, y_trunk = np.broadcast_arrays(x[(i * step[0]):end],  y[(j * step[1]):y_end, None])
-                x_trunk = np.stack([x_trunk, y_trunk], axis=-1).reshape(-1, 2)
-                x_trunk[:, 0], x_trunk[:, 1] = reproject.transform(x_trunk[:, 0], x_trunk[:, 1])
-                del y_trunk
+                x_chunk, y_chunk = np.broadcast_arrays(x[(i * step[0]):end],  y[(j * step[1]):y_end, None])
+                x_chunk = np.stack([x_chunk, y_chunk], axis=-1).reshape(-1, 2)
+                x_chunk[:, 0], x_chunk[:, 1] = reproject.transform(x_chunk[:, 0], x_chunk[:, 1])
+                del y_chunk
                 dggs = DGGRIDv7(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
                 # nearestpoint
                 if (method.lower() == 'nearestpoint'):
                     print(f"---Generate Cell ID with resolution {resolution} by nearestpoint method, x batch:{x_batch}, y batch:{y_batch}---")
-                    maxlat, minlat, maxlng, minlng = np.max(x_trunk[:, 1]), np.min(x_trunk[:, 1]), np.max(x_trunk[:, 0]), np.min(x_trunk[:, 0])
+                    maxlat, minlat, maxlng, minlng = np.max(x_chunk[:, 1]), np.min(x_chunk[:, 1]), np.max(x_chunk[:, 0]), np.min(x_chunk[:, 0])
                     truck_df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs='wgs84')
                     result = dggs.grid_cell_centroids_for_extent(grid_name, resolution, clip_geom=truck_df.geometry.values[0],
                                                                  output_address_type='Z7_STRING').set_crs('wgs84')
-                    x_trunk = gpd.GeoSeries(gpd.points_from_xy(x_trunk[:, 0], x_trunk[:, 1]), crs='wgs84')
-                    idx = result.geometry.sindex.nearest(x_trunk, return_all=False, return_distance=False)[1]
+                    x_chunk = gpd.GeoSeries(gpd.points_from_xy(x_chunk[:, 0], x_chunk[:, 1]), crs='wgs84')
+                    idx = result.geometry.sindex.nearest(x_chunk, return_all=False, return_distance=False)[1]
                     #centroids = result.geometry.get_coordinates()
                     #centroids = np.stack([centroids['x'].values, centroids['y'].values], axis=-1)
                     #centroids_idx = S2PointIndex(centroids)
-                    #distance, idx = centroids_idx.query(x_trunk)
+                    #distance, idx = centroids_idx.query(x_chunk)
                     cells = result.iloc[idx]['name'].astype(str)
                 # centerpoint
                 elif (method.lower() == 'centerpoint'):
                     print(f"---Generate Cell ID with resolution {resolution} by centerpoint method x batch:{x_batch}, y batch:{y_batch}---")
-                    df = gpd.GeoDataFrame([0] * x_trunk.shape[0], geometry=gpd.points_from_xy(x_trunk[:, 0], x_trunk[:, 1]), crs=src_epsg)
+                    df = gpd.GeoDataFrame([0] * x_chunk.shape[0], geometry=gpd.points_from_xy(x_chunk[:, 0], x_chunk[:, 1]), crs=src_epsg)
                     result = dggs.cells_for_geo_points(df, True, grid_name, resolution, output_address_type='Z7_STRING')
                     cells = result['name'].values.astype(str)
                 # handling for x-axis boundary case
-                yoff = y_offset if (i != (x_batch - 1)) else x_trunk.shape[0]
+                yoff = y_offset if (i != (x_batch - 1)) else x_chunk.shape[0]
                 # handling for x and y axis boundary case (top right corner)
                 yoff = (x[(i * step[0]):end].shape[0] * step[0]) if ((i == (x_batch - 1)) and (j == (y_batch - 1))) else yoff
-                cellids[offset + (j * yoff):((offset + (j * yoff)) + x_trunk.shape[0])] = cells
+                cellids[offset + (j * yoff):((offset + (j * yoff)) + x_chunk.shape[0])] = cells
                 cellids.flush()
             print(f'cell generation time: ({time.time()-start})')
         print(f'Cell ID calcultion completed, unique cell id :{np.unique(cellids).shape[0]}')
@@ -242,8 +242,8 @@ class IGEO7Index(DGGSIndex):
             with pymp.Parallel(mp) as p:
                 for i in tqdm(p.range(batch)):
                     end = (i*step)+step if (((i*step)+step) < data.shape[0]) else data.shape[0]
-                    trunk = data[(i*step):end]
-                    df = self.dggrid.grid_cell_centroids_from_cellids(trunk, self._grid.grid_name, self._grid.level,
+                    chunk = data[(i*step):end]
+                    df = self.dggrid.grid_cell_centroids_from_cellids(chunk, self._grid.grid_name, self._grid.level,
                                                                                 input_address_type='Z7_STRING', output_address_type='Z7_STRING')
                     ps = df['geometry'].values
                     ps = np.array([[p.x, p.y] for p in ps])
@@ -268,8 +268,8 @@ class IGEO7Index(DGGSIndex):
             with pymp.Parallel(mp) as p:
                 for i in tqdm(p.range(batch)):
                     end = (i*step)+step if (((i*step)+step) < data.shape[0]) else data.shape[0]
-                    trunk = data[(i*step):end]
-                    df = self.dggrid.grid_cell_polygons_from_cellids(trunk, self._grid.grid_name, self._grid.level,
+                    chunk = data[(i*step):end]
+                    df = self.dggrid.grid_cell_polygons_from_cellids(chunk, self._grid.grid_name, self._grid.level,
                                                                                input_address_type='Z7_STRING', output_address_type='Z7_STRING')
                     geometryDF.append(df)
             geometryDF = gpd.GeoDataFrame(pd.concat( geometryDF, ignore_index=True))
