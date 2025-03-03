@@ -24,13 +24,13 @@ import tempfile
 import importlib
 import os
 import time
+import threading
 import pandas as pd
 from pyproj import Transformer
-
-try:
-    import pymp
-except ImportError:
-    from contextlib import nullcontext
+from scipy.spatial import cKDTree
+import uuid
+import warnings
+warnings.filterwarnings('ignore')
 
 try:
     dggrid_path = os.environ['DGGRID_PATH']
@@ -112,7 +112,39 @@ class IGEO7Index(DGGSIndex):
         *,
         options: Mapping[str, Any],
     ) -> "IGEO7Index":
-        # name, var, _ = _extract_cell_id_variable(variables)
+        # innner function for threading
+        def _gen_cellids(i, method, xpos, ypos):
+            temp_dir = tempfile.TemporaryDirectory()
+            dggs = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
+            end = (i * step) + step if (((i * step) + step) < c2.shape[0]) else c2.shape[0]
+            c2_segment = c2[(i * step):end]
+            c1_chunk, c2_chunk = np.meshgrid(c1, c2_segment, indexing='ij')
+            chunk = np.c_[c1_chunk.ravel(), c2_chunk.ravel()]
+            # handling  boundary case
+            # local_jobsize = job_size if (i != (batch - 1)) else chunk.shape[0]
+            offset = (i * job_size)
+            del c2_chunk
+            chunk = gpd.GeoSeries(gpd.points_from_xy(chunk[:, xpos], chunk[:, ypos]), crs=src_epsg).to_crs('wgs84')
+            # nearestpoint
+            if (method.lower() == 'nearestpoint'):
+                maxc2, minc2 = np.max(c2_segment), np.min(c2_segment)
+                if (xpos == 0):
+                    region = gpd.GeoSeries([shapely.geometry.box(minc1, minc2, maxc1, maxc2)], crs=src_epsg).to_crs('wgs84')
+                else:
+                    region = gpd.GeoSeries([shapely.geometry.box(minc2, minc1, maxc2, maxc1)], crs=src_epsg).to_crs('wgs84')
+                result = dggs.grid_cell_centroids_for_extent(grid_name, resolution, clip_geom=region.geometry.values[0],
+                                                             output_address_type='Z7_STRING')
+                idx = result.geometry.sindex.nearest(chunk.geometry, return_all=False, return_distance=False)[1]
+                cells = result.iloc[idx]['name'].astype(str).values.copy()
+            # centerpoint
+            elif (method.lower() == 'centerpoint'):
+                df = gpd.GeoDataFrame([0] * chunk.shape[0], geometry=gpd.points_from_xy(chunk[:, xpos], chunk[:, ypos]))
+                result = dggs.cells_for_geo_points(df, True, grid_name, resolution, output_address_type='Z7_STRING')
+                cells = result['name'].astype(str).values
+            cellids[offset: (offset + chunk.shape[0])] = cells
+            cellids.flush()
+
+        # actual start of processing
         igeo7 = [k for k in variables.keys() if (variables[k].attrs.get('grid_name','not_found').upper() == 'IGEO7')]
         var = variables[igeo7[0]]
         if (type(var.data) is np.ndarray):
@@ -125,77 +157,60 @@ class IGEO7Index(DGGSIndex):
         coords = var.attrs.get('coordinate', options.get('coordinate'))
         src_epsg = var.attrs.get("src_epsg", options.get("src_epsg", "wgs84"))
         method = var.attrs.get("method", options.get("method", "nearestpoint"))
-        mp = var.attrs.get("mp", options.get('mp', 1)) if ('pymp' in sys.modules) else 1
-        # step = var.attrs.get("chunk", options.get('chunk', (250000, 250000))) if (mp > 1) else var.data.shape
-        x = variables[coords[0]].data
-        y = variables[coords[1]].data
-        step = var.attrs.get("chunk", options.get('chunk', (250000, 250000))) if (mp > 1) else (len(x), len(y))
+        mp = var.attrs.get("mp", options.get('mp', 1))
+        # handling stack with (y,x) or (x,y)
+        flapped = True if (coords.index('x') == 1) else False
+        c1 = variables[coords[coords.index('x')]].data if (not flapped) else variables[coords[coords.index('y')]].data
+        c2 = variables[coords[coords.index('y')]].data if (not flapped) else variables[coords[coords.index('x')]].data
+        step = var.attrs.get("chunk", options.get('chunk', (1000))) if (mp > 1) else len(c2)
         reproject = Transformer.from_crs(src_epsg, 'wgs84', always_xy=True)
-        print(f'x shape: ({x.shape}), y shape: ({y.shape})')
+        print(f'c1 shape: {c1.shape}, c2 shape: {c2.shape}, flapped:{flapped}')
         if (grid_name not in dggs_types):
             raise ValueError(f"{grid_name} is not defined in DGGRID")
         cellids = None
-        x_batch = int(np.ceil(x.shape[0] / step[0]))
-        y_batch = int(np.ceil(y.shape[0] / step[1]))
-        job = np.arange(x_batch)
-        job1 = np.arange(y_batch)
-        job, job1 = np.broadcast_arrays(job, job1[:, None])
-        job = np.stack([job, job1], axis=-1).reshape(-1, 2)
-        del (job1)
-        y_offset = step[1] * step[1]
+        # a small note, stack are oriented in rectangle, square job partition don't work.
+        # preparing job list by partitioning the extent into smaller tiles(steps)
+        batch = int(np.ceil(c2.shape[0] / step))
+        job = np.arange(batch)
+        # job, job1 = np.broadcast_arrays(job, job1[:, None])
+        job_size = len(c1) * step
         # Auto Resolution
+        temp_dir = tempfile.TemporaryDirectory()
+        dggs = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
         if (resolution == -1):
-            maxlat, minlat, maxlng, minlng = np.max(y), np.min(y), np.max(x), np.min(x)
-            resolution = cls._autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, (x.shape[0] * y.shape[0]), grid_name)
+            maxc1, minc1, maxc2, minc2 = np.max(c1), np.min(c1), np.max(c2), np.min(c2)
+            if (not flapped):
+                resolution = cls._autoResolution(dggs, minc1, minc2, maxc1, maxc2, src_epsg, (c1.shape[0] * c2.shape[0]), grid_name)
+            else:
+                resolution = cls._autoResolution(dggs, minc2, minc1, maxc2, maxc1, src_epsg, (c1.shape[0] * c2.shape[0]), grid_name)
         # Generate Cells ID
         with tempfile.NamedTemporaryFile() as ntf:
-            cellids = np.memmap(ntf, mode='w+', shape=(x.shape[0] * y.shape[0]), dtype='<U34')
+            cellids = np.memmap(ntf, mode='w+', shape=(c1.shape[0] * c2.shape[0]), dtype='<U34')
         start = time.time()
-        print(f"--- Multiprocessing {mp} ---")
-        cm = pymp.Parallel(mp) if ('pymp' in sys.modules) else nullcontext()
-        with cm as p:
-            for b in tqdm(p.range(len(job)) if (isinstance(p, type(nullcontext()))) else range(len(job))):
-                i, j = job[b][0], job[b][1]
-                end = (i * step[0]) + step[0] if (((i * step[0]) + step[0]) < x.shape[0]) else x.shape[0]
-                y_end = (j * step[1]) + step[1] if (((j * step[1]) + step[1]) < y.shape[0]) else y.shape[0]
-                offset = i * (y.shape[0] * step[1])
-                x_chunk, y_chunk = np.broadcast_arrays(x[(i * step[0]):end],  y[(j * step[1]):y_end, None])
-                x_chunk = np.stack([x_chunk, y_chunk], axis=-1).reshape(-1, 2)
-                x_chunk[:, 0], x_chunk[:, 1] = reproject.transform(x_chunk[:, 0], x_chunk[:, 1])
-                del y_chunk
-                dggs = DGGRIDv7(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
-                # nearestpoint
-                if (method.lower() == 'nearestpoint'):
-                    print(f"---Generate Cell ID with resolution {resolution} by nearestpoint method, x batch:{x_batch}, y batch:{y_batch}---")
-                    maxlat, minlat, maxlng, minlng = np.max(x_chunk[:, 1]), np.min(x_chunk[:, 1]), np.max(x_chunk[:, 0]), np.min(x_chunk[:, 0])
-                    truck_df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs='wgs84')
-                    result = dggs.grid_cell_centroids_for_extent(grid_name, resolution, clip_geom=truck_df.geometry.values[0],
-                                                                 output_address_type='Z7_STRING').set_crs('wgs84')
-                    x_chunk = gpd.GeoSeries(gpd.points_from_xy(x_chunk[:, 0], x_chunk[:, 1]), crs='wgs84')
-                    idx = result.geometry.sindex.nearest(x_chunk, return_all=False, return_distance=False)[1]
-                    #centroids = result.geometry.get_coordinates()
-                    #centroids = np.stack([centroids['x'].values, centroids['y'].values], axis=-1)
-                    #centroids_idx = S2PointIndex(centroids)
-                    #distance, idx = centroids_idx.query(x_chunk)
-                    cells = result.iloc[idx]['name'].astype(str)
-                # centerpoint
-                elif (method.lower() == 'centerpoint'):
-                    print(f"---Generate Cell ID with resolution {resolution} by centerpoint method x batch:{x_batch}, y batch:{y_batch}---")
-                    df = gpd.GeoDataFrame([0] * x_chunk.shape[0], geometry=gpd.points_from_xy(x_chunk[:, 0], x_chunk[:, 1]), crs=src_epsg)
-                    result = dggs.cells_for_geo_points(df, True, grid_name, resolution, output_address_type='Z7_STRING')
-                    cells = result['name'].values.astype(str)
-                # handling for x-axis boundary case
-                yoff = y_offset if (i != (x_batch - 1)) else x_chunk.shape[0]
-                # handling for x and y axis boundary case (top right corner)
-                yoff = (x[(i * step[0]):end].shape[0] * step[0]) if ((i == (x_batch - 1)) and (j == (y_batch - 1))) else yoff
-                cellids[offset + (j * yoff):((offset + (j * yoff)) + x_chunk.shape[0])] = cells
-                cellids.flush()
-            print(f'cell generation time: ({time.time()-start})')
+        threads = []
+        print(f"--- Threads: {mp}, number of jobs: {len(job)}, job size: {job_size}, steps: {step} ---")
+        print(f"---Generate Cell ID with resolution {resolution} by {method} method, batch:{batch}---")
+        xpos, ypos = 0, 1
+        if (flapped):
+            xpos, ypos = 1, 0
+        minc1, maxc1 = np.min(c1), np.max(c1)
+        for b in tqdm(range(0, len(job), mp)):
+            threads = []
+            end = (b + mp) if (len(job) > (b + mp)) else len(job)
+            for k in job[b: end]:
+                t = threading.Thread(target=_gen_cellids, args=(k, method, xpos, ypos))
+                threads.append(t)
+                t.start()
+            [t.join() for t in threads]
+        cellids.flush()
+        print(f'cell generation time: ({time.time()-start})')
         print(f'Cell ID calcultion completed, unique cell id :{np.unique(cellids).shape[0]}')
         arrts = {'level': resolution, 'src_epsg': src_epsg, 'coordinate': coords, 'method': method,
                  'mp': mp, 'step': step, 'grid_name': grid_name}
         grid_info = IGEO7Info.from_dict(arrts | options)
         return cls(cellids.astype(np.str_), 'cell_ids', grid_info)
+
+
 
     @classmethod
     def stack(cls, variables: Mapping[Any, xr.Variable], dim: Hashable):
@@ -292,8 +307,7 @@ class IGEO7Index(DGGSIndex):
         return df
 
     @classmethod
-    def _autoResolution(cls: type["IGEO7Index"], minlng, minlat, maxlng, maxlat, src_epsg, num_data, grid_name):
-        dggs = DGGRIDv7(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
+    def _autoResolution(cls: type["IGEO7Index"], dggs, minlng, minlat, maxlng, maxlat, src_epsg, num_data, grid_name):
         print('Calculate Auto resolution')
         print(f'{minlat},{minlng},{maxlat},{maxlng}')
         df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
