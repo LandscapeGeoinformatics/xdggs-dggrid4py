@@ -116,29 +116,29 @@ class IGEO7Index(DGGSIndex):
         def _gen_cellids(i, method, xpos, ypos):
             temp_dir = tempfile.TemporaryDirectory()
             dggs = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
-            end = (i * step) + step if (((i * step) + step) < c2.shape[0]) else c2.shape[0]
-            c2_segment = c2[(i * step):end]
-            c1_chunk, c2_chunk = np.meshgrid(c1, c2_segment, indexing='ij')
-            chunk = np.c_[c1_chunk.ravel(), c2_chunk.ravel()]
+            end = (i * step) + step if (((i * step) + step) < c1.shape[0]) else c1.shape[0]
+            c1_segment = c1[(i * step):end]
+            c2_chunk, c1_chunk = np.meshgrid(c1_segment, c2, indexing='ij')
+            chunk = np.c_[c2_chunk.ravel(), c1_chunk.ravel()]
             # handling  boundary case
             # local_jobsize = job_size if (i != (batch - 1)) else chunk.shape[0]
             offset = (i * job_size)
-            del c2_chunk
+            del c1_chunk
             chunk = gpd.GeoSeries(gpd.points_from_xy(chunk[:, xpos], chunk[:, ypos]), crs=src_epsg).to_crs('wgs84')
             # nearestpoint
             if (method.lower() == 'nearestpoint'):
-                maxc2, minc2 = np.max(c2_segment), np.min(c2_segment)
+                b, d = np.max(c1_segment), np.min(c1_segment)
                 if (xpos == 0):
-                    region = gpd.GeoSeries([shapely.geometry.box(minc1, minc2, maxc1, maxc2)], crs=src_epsg).to_crs('wgs84')
+                    region = gpd.GeoSeries([shapely.geometry.box(d, minc2, b, maxc2)], crs=src_epsg).to_crs('wgs84')
                 else:
-                    region = gpd.GeoSeries([shapely.geometry.box(minc2, minc1, maxc2, maxc1)], crs=src_epsg).to_crs('wgs84')
+                    region = gpd.GeoSeries([shapely.geometry.box(minc2, d, maxc2, b)], crs=src_epsg).to_crs('wgs84')
                 result = dggs.grid_cell_centroids_for_extent(grid_name, resolution, clip_geom=region.geometry.values[0],
                                                              output_address_type='Z7_STRING')
                 idx = result.geometry.sindex.nearest(chunk.geometry, return_all=False, return_distance=False)[1]
-                cells = result.iloc[idx]['name'].astype(str).values.copy()
+                cells = result.iloc[idx]['name'].astype(str).values
             # centerpoint
             elif (method.lower() == 'centerpoint'):
-                df = gpd.GeoDataFrame([0] * chunk.shape[0], geometry=gpd.points_from_xy(chunk[:, xpos], chunk[:, ypos]))
+                df = gpd.GeoDataFrame([0] * chunk.shape[0], geometry=chunk)
                 result = dggs.cells_for_geo_points(df, True, grid_name, resolution, output_address_type='Z7_STRING')
                 cells = result['name'].astype(str).values
             cellids[offset: (offset + chunk.shape[0])] = cells
@@ -162,18 +162,17 @@ class IGEO7Index(DGGSIndex):
         flapped = True if (coords.index('x') == 1) else False
         c1 = variables[coords[coords.index('x')]].data if (not flapped) else variables[coords[coords.index('y')]].data
         c2 = variables[coords[coords.index('y')]].data if (not flapped) else variables[coords[coords.index('x')]].data
-        step = var.attrs.get("chunk", options.get('chunk', (1000))) if (mp > 1) else len(c2)
-        reproject = Transformer.from_crs(src_epsg, 'wgs84', always_xy=True)
+        step = var.attrs.get("chunk", options.get('chunk', (1000))) if (mp > 1) else len(c1)
         print(f'c1 shape: {c1.shape}, c2 shape: {c2.shape}, flapped:{flapped}')
         if (grid_name not in dggs_types):
             raise ValueError(f"{grid_name} is not defined in DGGRID")
         cellids = None
         # a small note, stack are oriented in rectangle, square job partition don't work.
         # preparing job list by partitioning the extent into smaller tiles(steps)
-        batch = int(np.ceil(c2.shape[0] / step))
+        batch = int(np.ceil(c1.shape[0] / step))
         job = np.arange(batch)
         # job, job1 = np.broadcast_arrays(job, job1[:, None])
-        job_size = len(c1) * step
+        job_size = len(c2) * step
         # Auto Resolution
         temp_dir = tempfile.TemporaryDirectory()
         dggs = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
