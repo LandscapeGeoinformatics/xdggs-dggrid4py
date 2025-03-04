@@ -37,6 +37,7 @@ try:
 except KeyError:
     raise Exception("DGGRID_PATH env var not found")
 
+
 @dataclass(frozen=True)
 class IGEO7Info(DGGSInfo):
     src_epsg: str
@@ -81,7 +82,7 @@ class IGEO7Info(DGGSInfo):
             lon, lat = np.broadcast_arrays(lon,  lat[:, None])
         centroids = np.stack([lon, lat], axis=-1).reshape(-1, 2)
         centroids = [shapely.Point(c[0], c[1]) for c in centroids]
-        centroids = gpd.GeoDataFrame([0]*len(centroids), geometry=centroids, crs='wgs84')
+        centroids = gpd.GeoDataFrame([0] * len(centroids), geometry=centroids, crs='wgs84')
         working_dir = tempfile.mkdtemp()
         dggrid = DGGRIDv7(dggrid_path, working_dir=working_dir, silent=True)
         centroids = dggrid.cells_for_geo_points(centroids, True, self.grid_name, self.level, output_address_type='Z7_STRING')
@@ -162,7 +163,7 @@ class IGEO7Index(DGGSIndex):
         flapped = True if (coords.index('x') == 1) else False
         c1 = variables[coords[coords.index('x')]].data if (not flapped) else variables[coords[coords.index('y')]].data
         c2 = variables[coords[coords.index('y')]].data if (not flapped) else variables[coords[coords.index('x')]].data
-        step = var.attrs.get("chunk", options.get('chunk', (1000))) if (mp > 1) else len(c1)
+        step = var.attrs.get("step", options.get('step', 1000)) if (mp > 1) else len(c1)
         print(f'c1 shape: {c1.shape}, c2 shape: {c2.shape}, flapped:{flapped}')
         if (grid_name not in dggs_types):
             raise ValueError(f"{grid_name} is not defined in DGGRID")
@@ -176,8 +177,8 @@ class IGEO7Index(DGGSIndex):
         # Auto Resolution
         temp_dir = tempfile.TemporaryDirectory()
         dggs = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
+        maxc1, minc1, maxc2, minc2 = np.max(c1), np.min(c1), np.max(c2), np.min(c2)
         if (resolution == -1):
-            maxc1, minc1, maxc2, minc2 = np.max(c1), np.min(c1), np.max(c2), np.min(c2)
             if (not flapped):
                 resolution = cls._autoResolution(dggs, minc1, minc2, maxc1, maxc2, src_epsg, (c1.shape[0] * c2.shape[0]), grid_name)
             else:
@@ -192,7 +193,6 @@ class IGEO7Index(DGGSIndex):
         xpos, ypos = 0, 1
         if (flapped):
             xpos, ypos = 1, 0
-        minc1, maxc1 = np.min(c1), np.max(c1)
         for b in tqdm(range(0, len(job), mp)):
             threads = []
             end = (b + mp) if (len(job) > (b + mp)) else len(job)
@@ -208,8 +208,6 @@ class IGEO7Index(DGGSIndex):
                  'mp': mp, 'step': step, 'grid_name': grid_name}
         grid_info = IGEO7Info.from_dict(arrts | options)
         return cls(cellids.astype(np.str_), 'cell_ids', grid_info)
-
-
 
     @classmethod
     def stack(cls, variables: Mapping[Any, xr.Variable], dim: Hashable):
@@ -245,53 +243,68 @@ class IGEO7Index(DGGSIndex):
         return self._pd_index.index
 
     def cell_centers(self, cell_ids: np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
-        mp = False if (importlib.util.find_spec('pymp') is None) else True
-        data = cell_ids if (cell_ids is not None) else self._pd_index.index.values
-        if (mp):
-            import pymp
-            mp = self._grid.mp
-            step = self._grid.step[0]
-            batch = int(np.ceil(data.shape[0]/step))
-            points = pymp.shared.array([data.shape[0],2])
-            with pymp.Parallel(mp) as p:
-                for i in tqdm(p.range(batch)):
-                    end = (i*step)+step if (((i*step)+step) < data.shape[0]) else data.shape[0]
-                    chunk = data[(i*step):end]
-                    df = self.dggrid.grid_cell_centroids_from_cellids(chunk, self._grid.grid_name, self._grid.level,
-                                                                                input_address_type='Z7_STRING', output_address_type='Z7_STRING')
-                    ps = df['geometry'].values
-                    ps = np.array([[p.x, p.y] for p in ps])
-                    points[(i*step):end] = ps
-        else:
-            df = self.dggrid.grid_cell_centroids_from_cellids(self._pd_index.index.values, self._grid.grid_name, self._grid.level,
-                                                                     input_address_type='Z7_STRING', output_address_type='Z7_STRING')
-            points = df['geometry'].values
-            points = np.array([[p.x, p.y] for p in points])
 
-        return (points[:, 0], points[:, 1])
+        def _cellscentroid_from_cellids(i, gridname, resolution):
+            temp_dir = tempfile.TemporaryDirectory()
+            dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
+            end = (i * step) + step if (((i * step) + step) < data.shape[0]) else data.shape[0]
+            chunk = data[(i * step): end]
+            df = dggrid.grid_cell_centroids_from_cellids(chunk, self._grid.grid_name, self._grid.level,
+                                                         input_address_type='Z7_STRING', output_address_type='Z7_STRING')
+            ps = df['geometry'].values
+            ps = np.array([[p.x, p.y] for p in ps])
+            centroids[(i * step): (i * step) + ps.shape[0]] = ps
+
+        data = cell_ids if (cell_ids is not None) else self._pd_index.index.values
+        with tempfile.NamedTemporaryFile() as ntf:
+            centroids = np.memmap(ntf, mode='w+', shape=(data.shape[0], 2), dtype='float')
+        mp = self._grid.mp
+        step = self._grid.step
+        batch = int(np.ceil(data.shape[0] / step))
+        for i in tqdm(range(0, batch, mp)):
+            threads = []
+            end = (i + mp) if (batch > (i + mp)) else batch
+            for j in range(i, end):
+                t = threading.Thread(target=_cellscentroid_from_cellids, args=(j, self._grid.grid_name, self._grid.level))
+                threads.append(t)
+                t.start()
+            [t.join() for t in threads]
+
+        return (centroids[:, 0], centroids[:, 1])
 
     def cell_boundaries(self, cell_ids: np.ndarray = None) -> List[shapely.Polygon]:
-        mp = False if (importlib.util.find_spec('pymp') is None) else True
+
+        def _cellspolygon_from_cellids(i, gridname, resolution):
+            temp_dir = tempfile.TemporaryDirectory()
+            dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
+            end = (i * step) + step if (((i * step) + step) < data.shape[0]) else data.shape[0]
+            chunk = data[(i * step): end]
+            df = dggrid.grid_cell_polygons_from_cellids(chunk, self._grid.grid_name, self._grid.level,
+                                                        input_address_type='Z7_STRING', output_address_type='Z7_STRING')
+            df = df.set_index('name')
+            chunk_df = pd.DataFrame(chunk, columns=['org_ids']).set_index('org_ids')
+            chunk_df = chunk_df.join(df)
+            chunk_df.reset_index(inplace=True)
+            p = chunk_df[['org_ids', 'geometry']].values
+            polygon[(i * step): (i * step) + p.shape[0]] = p
+
         data = cell_ids if (cell_ids is not None) else self._pd_index.index.values
-        if (mp):
-            import pymp
-            mp = self._grid.mp
-            step = self._grid.step[0]
-            batch = int(np.ceil(data.shape[0]/step))
-            geometryDF = pymp.shared.list([])
-            with pymp.Parallel(mp) as p:
-                for i in tqdm(p.range(batch)):
-                    end = (i*step)+step if (((i*step)+step) < data.shape[0]) else data.shape[0]
-                    chunk = data[(i*step):end]
-                    df = self.dggrid.grid_cell_polygons_from_cellids(chunk, self._grid.grid_name, self._grid.level,
-                                                                               input_address_type='Z7_STRING', output_address_type='Z7_STRING')
-                    geometryDF.append(df)
-            geometryDF = gpd.GeoDataFrame(pd.concat( geometryDF, ignore_index=True))
-        else:
-            geometryDF = self.dggrid.grid_cell_polygons_from_cellids(data, self._grid.grid_name, self._grid.level,
-                                                                               input_address_type='Z7_STRING', output_address_type='Z7_STRING')
+        with tempfile.NamedTemporaryFile() as ntf:
+            polygon = np.memmap(ntf, mode='w+', shape=(data.shape[0], 2), dtype=object)
+        mp = self._grid.mp
+        step = self._grid.step
+        batch = int(np.ceil(data.shape[0] / step))
+        for i in tqdm(range(0, batch, mp)):
+            threads = []
+            end = i + mp if (batch > i + mp) else batch
+            for j in range(i, end):
+                t = threading.Thread(target=_cellspolygon_from_cellids, args=(j, self._grid.grid_name, self._grid.level))
+                threads.append(t)
+                t.start()
+            [t.join() for t in threads]
+
         org_ids = pd.DataFrame(data, columns=['org_ids']).set_index('org_ids')
-        geometryDF = geometryDF.set_index('name')
+        geometryDF = pd.DataFrame(polygon, columns=['cellids', 'geometry']).drop_duplicates(subset=['cellids']).set_index('cellids')
         geometryDF = org_ids.join(geometryDF)
         return geometryDF['geometry'].values
 
