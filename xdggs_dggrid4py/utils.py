@@ -1,4 +1,4 @@
-from dggrid4py import DGGRIDv7, dggs_types
+from dggrid4py import DGGRIDv7
 import geopandas as gpd
 import shapely
 import tempfile
@@ -10,41 +10,13 @@ try:
 except KeyError:
     raise Exception("DGGRID_PATH env var not found")
 
+igeo7regridding_method = {}
 
-def _gen_cellids(i, j, idata, jdata, cellids_memmap, chunk_size, total_size, grid_name, resolution, method, src_epsg, xpos, ypos, lock):
-    temp_dir = tempfile.TemporaryDirectory()
-    dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
-    ichunk, jchunk = np.meshgrid(idata, jdata, indexing='ij')
-    chunk = np.c_[ichunk.ravel(), jchunk.ravel()]
-    # offset of i and j
-    ioffset = i * chunk_size[0] * total_size[1]
-    joffset = j * chunk_size[1]
-    chunk = gpd.GeoSeries(gpd.points_from_xy(chunk[:, xpos], chunk[:, ypos]), crs=src_epsg).to_crs('wgs84')
-    # nearestpoint
-    if (method.lower() == 'nearestpoint'):
-        mini, maxi, minj, maxj = np.min(idata), np.max(idata), np.min(jdata), np.max(jdata)
-        if (xpos == 0):
-            region = gpd.GeoSeries([shapely.geometry.box(mini, minj, maxi, maxj)], crs=src_epsg).to_crs('wgs84')
-        else:
-            region = gpd.GeoSeries([shapely.geometry.box(minj, mini, maxj, maxi)], crs=src_epsg).to_crs('wgs84')
-        result = dggrid.grid_cell_centroids_for_extent(grid_name, resolution, clip_geom=region.geometry.values[0],
-                                                     output_address_type='Z7_STRING')
-        idx = result.geometry.sindex.nearest(chunk.geometry, return_all=False, return_distance=False)[1]
-        cells = result.iloc[idx]['name'].astype(str).values
-    # centerpoint
-    elif (method.lower() == 'centerpoint'):
-        df = gpd.GeoDataFrame([0] * chunk.shape[0], geometry=chunk)
-        result = dggrid.cells_for_geo_points(df, True, grid_name, resolution, output_address_type='Z7_STRING')
-        cells = result['name'].astype(str).values
-    cellids = np.memmap(cellids_memmap, mode='r+', shape=(total_size[0] * total_size[1],), dtype='<U34')
-    for x, a in enumerate(range(0, len(cells), len(jdata))):
-        start = ioffset + joffset + (x * total_size[1])
-        end1 = len(jdata) if (a + len(jdata) < len(cells)) else (len(cells) - a)
-        end2 = a + len(jdata) if (a + len(jdata) < len(cells)) else len(cells)
-        #print(f'io: {ioffset} jo:{joffset} start: {start}, end1: {end1}, end2: {end2}')
-        #print(f'{i} {j} {start} {end1}')
-        cellids[start: (start + end1)] = cells[a: end2]
-        cellids.flush()
+
+def register_igeo7regridding_method(func):
+    igeo7regridding_method[func.__name__] = func
+    print(f'Registered regridding method {func.__name__}')
+    return func
 
 
 def _gen_centroid_from_cellids(batch, steps, cellids, grid_name, resolution, total_len, centroids_memmap):
@@ -72,4 +44,42 @@ def _gen_polygon_from_cellids(cellids, grid_name, resolution):
     df = df.set_index('cellids')
     df = polygon_df.join(df, how='right')
     return df['geometry'].values
+
+def _gen_parents_from_cellids(batch, steps, cellids, relative_level,total_len, cellids_memmap):
+    parent_cellids = np.memmap(cellids_memmap, mode='r+', shape=(total_len,), dtype='|S34')
+    end = (batch * steps) + steps if (((batch * steps) + steps) < total_len) else total_len
+    parent_cellids[(batch * steps): end] = [c[: relative_level] for c in cellids]
+    parent_cellids.flush()
+
+def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, grid_name):
+    dggs = DGGRIDv7(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
+    print('Calculate Auto resolution')
+    df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
+    print(f'Total Bounds ({src_epsg}): {df.total_bounds}')
+    df = df.to_crs('wgs84')
+    print(f'Total Bounds (wgs84): {df.total_bounds}')
+    R = 6371
+    lon1, lat1, lon2, lat2 = df.total_bounds
+    lon1, lon2, lat1, lat2 = np.deg2rad(lon1), np.deg2rad(lon2), np.deg2rad(lat1), np.deg2rad(lat2)
+    a = (np.sin((lon2 - lon1) / 2) ** 2 + np.cos(lon1) * np.cos(lon2) * np.sin(0) ** 2)
+    d = 2 * np.arcsin(np.sqrt(a))
+    area = abs(d * ((np.power(R, 2) * np.sin(lat2)) - (np.power(R, 2) * np.sin(lat1))))
+    print(f'Total Bounds Area (km^2): {area}')
+    avg_area_per_data = (area / num_data)
+    print(f'Area per center point (km^2): {avg_area_per_data}')
+    dggrid_resolution = dggs.grid_stats_table('ISEA7H', 30)
+    filter_ = dggrid_resolution[dggrid_resolution['Area (km^2)'] < avg_area_per_data]
+    est_numberofcells = int(np.ceil(area / dggrid_resolution.iloc[4,2]))
+    resolution = 5
+    if (len(filter_) > 0):
+        resolution = filter_.iloc[0, 0]
+        est_numberofcells = int(np.ceil(area / filter_.iloc[0,2]))
+        print(f'Auto resolution : {resolution}, area: {filter_.iloc[0,2]} km2')
+    else:
+        print(f'Auto resolution failed, using {resolution}')
+
+    return resolution, est_numberofcells
+
+
+
 
