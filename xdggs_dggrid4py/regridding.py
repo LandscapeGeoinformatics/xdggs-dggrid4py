@@ -1,6 +1,6 @@
 from xdggs_dggrid4py.utils import autoResolution
 from xdggs_dggrid4py.IGEO7 import IGEO7Info
-from xdggs_dggrid4py.utils import igeo7regriding_method
+from xdggs_dggrid4py.utils import igeo7regridding_method
 import xarray as xr
 import numpy as np
 import tempfile
@@ -55,7 +55,8 @@ def _read_result(batch_cellids_memmap, batch_idx_memmap, cellids_memmap, idx_mem
     cellids[start: start+end] =  batch_cellids
     index[start: start+end] = batch_index
 
-def igeo7regriding(ds: xr.Dataset) -> xr.Dataset:
+
+def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
     variables = ds.variables
     igeo7info, resolution, jobs, est_numberofcells, xidx, yidx = _initialize(ds)
     job_size = igeo7info.chunk[0] * igeo7info.chunk[1]
@@ -66,14 +67,14 @@ def igeo7regriding(ds: xr.Dataset) -> xr.Dataset:
     print(f"--- Multiprocessing {igeo7info.mp}, jobs: {len(jobs)}, job size: {job_size}, chunk: {igeo7info.chunk}  ---")
     print(f"--- Generate cells ID at level {igeo7info.level} by {igeo7info.method}")
     ntf = tempfile.TemporaryDirectory()
-    regriding_method = igeo7regriding_method[igeo7info.method]
+    regridding_method = igeo7regridding_method[igeo7info.method]
     start = time.time()
     # Regriding
     # Each method should return a list of cellids and the corresponding index (global index) of stacked data
     # it is kind of similar to map reduce processing, each sub-processes produce small bactch result in files and read back by main process
     # each sub-process should return (number of cells, cellids memmap, idx memmap)
     with ProcessPoolExecutor(igeo7info.mp) as executor:
-        result = list(tqdm(executor.map(regriding_method,
+        result = list(tqdm(executor.map(regridding_method,
                                *zip(*[(job[0], job[1],
                                     c1[(job[0] * chunk[0]): ((job[0] * chunk[0]) + chunk[0]) if (len(c1) > ((job[0] * chunk[0]) + chunk[0])) else len(c1)],
                                     c2[(job[1] * chunk[1]): ((job[1] * chunk[1]) + chunk[1]) if (len(c2) > ((job[1] * chunk[1]) + chunk[1])) else len(c2)],
@@ -106,6 +107,7 @@ def igeo7regriding(ds: xr.Dataset) -> xr.Dataset:
     variables = new_ds.variables
     old = [k for k in variables.keys() if (variables[k].attrs.get('grid_name', 'not_found').upper() == 'IGEO7')]
     new_ds[old].attrs=None
+    new_ds = new_ds.drop_vars(igeo7info.coordinate)
     #new_ds = new_ds.set_index('cell_ids')
     print(f'---Generation completed time: ({time.time()-start}), number of cells: {sum(number_of_cells)}, unique cell id:{np.unique(cellids).shape[0]} ---')
     print(f'Re-assign data completed')
