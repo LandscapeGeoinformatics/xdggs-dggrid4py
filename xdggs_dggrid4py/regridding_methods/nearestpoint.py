@@ -1,4 +1,4 @@
-from xdggs_dggrid4py.utils import register_igeo7regriding_method
+from xdggs_dggrid4py.utils import register_igeo7regridding_method
 from dggrid4py import DGGRIDv7
 import numpy as np
 import geopandas as gpd
@@ -12,7 +12,7 @@ except KeyError:
     raise Exception("DGGRID_PATH env var not found")
 
 
-@register_igeo7regriding_method
+@register_igeo7regridding_method
 def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     temp_dir = tempfile.TemporaryDirectory()
     dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
@@ -35,8 +35,7 @@ def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     v, c = np.unique(idx, return_counts=True)
     block_statistic['reused'] = len(v[np.where(c > 1)[0]])
     cells = result['name'].astype(str).values
-    cellids_memmap = tempfile.mkstemp(dir=index_dir)
-    reindex_memmap = tempfile.mkstemp(dir=index_dir)
+    cellids_memmap, reindex_memmap = tempfile.mkstemp(dir=index_dir), tempfile.mkstemp(dir=index_dir)
     cellids = np.memmap(cellids_memmap[1], mode='w+', shape=(len(result),), dtype='|S34')
     reindex = np.memmap(reindex_memmap[1], mode='w+', shape=(len(result),), dtype=int)
     # offset of i and j , calculate the "global" index for stacked original data
@@ -48,3 +47,4 @@ def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     cellids.flush()
     reindex.flush()
     return (len(cells), cellids_memmap[1], reindex_memmap[1], block_statistic)
+

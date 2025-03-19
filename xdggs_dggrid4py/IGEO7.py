@@ -13,8 +13,8 @@ try:
     from typing import Self, Tuple
 except ImportError:  # pragma: no cover
     from typing_extensions import Self
-from xdggs_dggrid4py.regriding_methods import *
-from xdggs_dggrid4py.utils import _gen_centroid_from_cellids, _gen_polygon_from_cellids, _gen_parents_from_cellids, igeo7regriding_method
+from xdggs_dggrid4py.regridding_methods import *
+from xdggs_dggrid4py.utils import _gen_centroid_from_cellids, _gen_polygon_from_cellids, _gen_parents_from_cellids, igeo7regridding_method
 from tqdm.auto import tqdm
 from dggrid4py import DGGRIDv7
 import geopandas as gpd
@@ -39,7 +39,7 @@ class IGEO7Info(DGGSInfo):
     mp: int
     chunk: Tuple[int, int]
     grid_name: str
-    valid_parameters: ClassVar[dict[str, Any]] = {'grid_name': ['IGEO7'], "level": range(-1, 15), "method": list(igeo7regriding_method.keys())}
+    valid_parameters: ClassVar[dict[str, Any]] = {'grid_name': ['IGEO7'], "level": range(-1, 15), "method": list(igeo7regridding_method.keys())}
 
     def __post_init__(self):
         if (self.level not in self.valid_parameters['level']):
@@ -180,7 +180,9 @@ class IGEO7Index(DGGSIndex):
             list(tqdm(executor.map(_gen_parents_from_cellids, *zip(*[(i, steps,
                                    data[(i * steps): ((i * steps) + steps) if (((i * steps) + steps) < len(data)) else len(data)],
                                    relative_level, len(data), ntf.name) for i in range(batch)])), total=batch))
-        return parent_cellids.astype(np.str_)
+        return xr.DataArray(
+            parent_cellids.astype(np.str_), coords={'cell_ids': data}, dims='cell_ids'
+        )
 
 
 

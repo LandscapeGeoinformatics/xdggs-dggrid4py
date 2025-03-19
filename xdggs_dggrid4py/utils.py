@@ -10,11 +10,12 @@ try:
 except KeyError:
     raise Exception("DGGRID_PATH env var not found")
 
-igeo7regriding_method = {}
+igeo7regridding_method = {}
 
-def register_igeo7regriding_method(func):
-    igeo7regriding_method[func.__name__] = func
-    print(f'Registered regriding method {func.__name__}')
+
+def register_igeo7regridding_method(func):
+    igeo7regridding_method[func.__name__] = func
+    print(f'Registered regridding method {func.__name__}')
     return func
 
 
@@ -53,7 +54,6 @@ def _gen_parents_from_cellids(batch, steps, cellids, relative_level,total_len, c
 def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, grid_name):
     dggs = DGGRIDv7(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
     print('Calculate Auto resolution')
-    print(f'{minlat},{minlng},{maxlat},{maxlng}')
     df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
     print(f'Total Bounds ({src_epsg}): {df.total_bounds}')
     df = df.to_crs('wgs84')
