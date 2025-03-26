@@ -42,6 +42,8 @@ def _get_neighbours(neighbours, level, target=[]):
 
 
 def find_neighbours(cell_id):
+    if (cell_id[-1] == '0'):
+        return np.array([cell_id[: -1] + f'{i}' for i in range(1, 7)])
     path = _genpath(cell_id)
     # initialize at target cell level
     current_pos = path[-1]
