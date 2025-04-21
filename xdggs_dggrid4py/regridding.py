@@ -32,6 +32,7 @@ def _initialize(ds: xr.Dataset):
     jobs = np.c_[job.ravel(), job2.ravel()]
     cellids_length = len(c1) * len(c2)
     # Auto Resolution
+    resolution = igeo7info.level
     if (igeo7info.level == -1):
         maxc1, minc1, maxc2, minc2 = np.max(c1), np.min(c1), np.max(c2), np.min(c2)
         if (xidx == 0):
