@@ -101,16 +101,17 @@ def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
                                *zip(*[(r[1], r[2], cellids_memmap.name, reindex_memmap.name,
                                     number_of_cells[:i] if (i>0) else [0], r[0], total_cells)
                                for i, r in enumerate(result)])), total=len(result)))
-    ds = ds.stack(cell_ids=igeo7info.coordinate, create_index=False)
-    new_ds = ds.isel({'cell_ids': reindex})
-    new_ds['cell_ids'] = cellids.astype(np.str_)
-    new_ds['cell_ids'].attrs = igeo7info.to_dict()
-    variables = new_ds.variables
+    ds = ds.stack(cell_ids=igeo7info.coordinate, create_index=False).drop_vars(igeo7info.coordinate)
+    print(f'Stack completed')
+    ds = ds.isel({'cell_ids': reindex})
+    print(f'Generated new datasource')
+    ds['cell_ids'] = cellids.astype(np.str_)
+    ds['cell_ids'].attrs = igeo7info.to_dict()
+    variables = ds.variables
     old = [k for k in variables.keys() if (variables[k].attrs.get('grid_name', 'not_found').upper() == 'IGEO7')]
-    new_ds[old].attrs=None
-    new_ds = new_ds.drop_vars(igeo7info.coordinate)
+    ds[old].attrs=None
     #new_ds = new_ds.set_index('cell_ids')
     print(f'---Generation completed time: ({time.time()-start}), number of cells: {sum(number_of_cells)}, unique cell id:{np.unique(cellids).shape[0]} ---')
     print(f'Re-assign data completed')
-    return new_ds
+    return ds
 
