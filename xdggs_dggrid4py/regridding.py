@@ -101,7 +101,7 @@ def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
                                *zip(*[(r[1], r[2], cellids_memmap.name, reindex_memmap.name,
                                     number_of_cells[:i] if (i>0) else [0], r[0], total_cells)
                                for i, r in enumerate(result)])), total=len(result)))
-    ds = ds.stack(cell_ids=igeo7info.coordinate, create_index=False)
+    ds = ds.stack(cell_ids=igeo7info.coordinate, create_index).drop_indexes(["cell_ids"] + igeo7info.coordinate)
     new_ds = ds.isel({'cell_ids': reindex})
     new_ds['cell_ids'] = cellids.astype(np.str_)
     new_ds['cell_ids'].attrs = igeo7info.to_dict()
