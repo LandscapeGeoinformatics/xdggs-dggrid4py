@@ -56,6 +56,8 @@ def _read_result(batch_cellids_memmap, batch_idx_memmap, cellids_memmap, idx_mem
     index = np.memmap(idx_memmap, mode='r+', shape=(number_of_cells,), dtype=int)
     cellids[start: start+end] =  batch_cellids
     index[start: start+end] = batch_index
+    cellids.flush()
+    index.flush()
 
 
 def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
@@ -105,7 +107,6 @@ def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
     ds = ds.stack(cell_ids=igeo7info.coordinate, create_index=False).drop_vars(igeo7info.coordinate)
     print(f'Stack completed')
     ds = ds.isel({'cell_ids': reindex})
-    print(f'Generated new datasource')
     ds['cell_ids'] = cellids.astype(np.str_)
     ds['cell_ids'].attrs = igeo7info.to_dict()
     variables = ds.variables
