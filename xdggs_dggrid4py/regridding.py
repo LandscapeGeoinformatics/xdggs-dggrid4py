@@ -5,7 +5,7 @@ import xarray as xr
 import numpy as np
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExcutor
 from tqdm.auto import tqdm
 
 
@@ -60,6 +60,14 @@ def _read_result(batch_cellids_memmap, batch_idx_memmap, cellids_memmap, idx_mem
     index.flush()
 
 
+def _read_result_new(batch_cellids_memmap, batch_idx_memmap, end, cellidsize, ds):
+    index = np.memmap(batch_idx_memmap, mode='r', shape=(end,), dtype=int)
+    new_ds = ds.isel({'cell_ids': index})
+    index = np.memmap(batch_cellids_memmap, mode='r', shape=(end,), dtype=cellidsize)
+    new_ds['cell_ids'] = index
+    return new_ds
+
+
 def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
     variables = ds.variables
     igeo7info, resolution, jobs, est_numberofcells, xidx, yidx = _initialize(ds)
@@ -94,26 +102,27 @@ def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
             total_reused += i[3]['reused']
     total_cells = sum(number_of_cells)
     print(f'Re-assign data to cells, number of cells: {total_cells}, not assigned: {total_not_assigned}, reused: {total_reused}')
-    cellids_memmap = tempfile.NamedTemporaryFile()
-    reindex_memmap = tempfile.NamedTemporaryFile()
-    # read back result and write it to the master array
-    cellids = np.memmap(cellids_memmap, mode='w+', shape=(sum(number_of_cells),), dtype='|S34')
-    reindex = np.memmap(reindex_memmap, mode='w+', shape=(sum(number_of_cells),), dtype=int)
-    with ProcessPoolExecutor(igeo7info.mp) as executor:
-        list(tqdm(executor.map(_read_result,
-                               *zip(*[(r[1], r[2], cellids_memmap.name, reindex_memmap.name,
-                                    number_of_cells[:i] if (i>0) else [0], r[0], total_cells)
-                               for i, r in enumerate(result)])), total=len(result)))
     ds = ds.stack(cell_ids=igeo7info.coordinate, create_index=False).drop_vars(igeo7info.coordinate)
-    print(f'Stack completed')
-    ds = ds.isel({'cell_ids': reindex})
-    ds['cell_ids'] = cellids.astype(np.str_)
+    print('Stack completed')
+    #cellids_memmap = tempfile.NamedTemporaryFile()
+    #reindex_memmap = tempfile.NamedTemporaryFile()
+    # read back result and write it to the master array
+    cellidsize='|S{igeo7info.level+2}'
+    #cellids = np.memmap(cellids_memmap, mode='w+', shape=(sum(number_of_cells),), dtype=cellidsize)
+    #reindex = np.memmap(reindex_memmap, mode='w+', shape=(sum(number_of_cells),), dtype=int)
+    with ThreadPoolExcutor(igeo7info.mp) as executor:
+        ds = list(tqdm(executor.map(_read_result_new,
+                       *zip(*[(r[1], r[2], r[0], cellidsize, ds) for i, r in enumerate(result)])), total=len(result)))
+    ds = xr.merge(ds)
+    # ds = ds.isel({'cell_ids': reindex})
+    # ds['cell_ids'] = cellids.astype(np.str_)
     ds['cell_ids'].attrs = igeo7info.to_dict()
     variables = ds.variables
     old = [k for k in variables.keys() if (variables[k].attrs.get('grid_name', 'not_found').upper() == 'IGEO7')]
     ds[old].attrs=None
+    uniquecellsid = len(np.unique(ds.cell_ids)[0])
     #new_ds = new_ds.set_index('cell_ids')
-    print(f'---Generation completed time: ({time.time()-start}), number of cells: {sum(number_of_cells)}, unique cell id:{np.unique(cellids).shape[0]} ---')
-    print(f'Re-assign data completed')
+    print(f'---Generation completed time: ({time.time()-start}), number of cells: {sum(number_of_cells)}, unique cell id:{uniquecellsid} ---')
+    print('Re-assign data completed')
     return ds
 

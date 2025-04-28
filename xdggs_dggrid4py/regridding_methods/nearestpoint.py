@@ -20,6 +20,7 @@ def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     chunk_org = np.c_[ichunk.ravel(), jchunk.ravel()]
     xidx, yidx = igeo7info.coordinate.index('x'), igeo7info.coordinate.index('y')
     chunk_size = igeo7info.chunk
+    cellidsize='|S{igeo7info.level+2}'
     chunk = gpd.GeoSeries(gpd.points_from_xy(chunk_org[:, xidx], chunk_org[:, yidx]), crs=igeo7info.src_epsg).to_crs('wgs84')
     # nearestpoint
     mini, maxi, minj, maxj = np.min(icoords), np.max(icoords), np.min(jcoords), np.max(jcoords)
@@ -36,7 +37,7 @@ def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     block_statistic['reused'] = len(v[np.where(c > 1)[0]])
     cells = result['name'].astype(str).values
     cellids_memmap, reindex_memmap = tempfile.mkstemp(dir=index_dir), tempfile.mkstemp(dir=index_dir)
-    cellids = np.memmap(cellids_memmap[1], mode='w+', shape=(len(result),), dtype='|S34')
+    cellids = np.memmap(cellids_memmap[1], mode='w+', shape=(len(result),), dtype=cellidsize)
     reindex = np.memmap(reindex_memmap[1], mode='w+', shape=(len(result),), dtype=int)
     # offset of i and j , calculate the "global" index for stacked original data
     ioffset = i * chunk_size[0] * data_shape[1]
