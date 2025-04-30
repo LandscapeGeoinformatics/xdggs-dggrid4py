@@ -20,7 +20,7 @@ def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     chunk_org = np.c_[ichunk.ravel(), jchunk.ravel()]
     xidx, yidx = igeo7info.coordinate.index('x'), igeo7info.coordinate.index('y')
     chunk_size = igeo7info.chunk
-    cellidsize='|S{igeo7info.level+2}'
+    cellidsize=f'|S{igeo7info.level+2}'
     chunk = gpd.GeoSeries(gpd.points_from_xy(chunk_org[:, xidx], chunk_org[:, yidx]), crs=igeo7info.src_epsg).to_crs('wgs84')
     # nearestpoint
     mini, maxi, minj, maxj = np.min(icoords), np.max(icoords), np.min(jcoords), np.max(jcoords)
