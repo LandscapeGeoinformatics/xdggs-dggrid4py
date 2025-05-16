@@ -46,7 +46,8 @@ def _gen_polygon_from_cellids(cellids, grid_name, resolution):
     return df['geometry'].values
 
 def _gen_parents_from_cellids(batch, steps, cellids, relative_level,total_len, cellids_memmap):
-    parent_cellids = np.memmap(cellids_memmap, mode='r+', shape=(total_len,), dtype='|S34')
+    cellidsize = len(cellids[0]) + relative_level
+    parent_cellids = np.memmap(cellids_memmap, mode='r+', shape=(total_len,), dtype=f'|S{cellidsize}')
     end = (batch * steps) + steps if (((batch * steps) + steps) < total_len) else total_len
     parent_cellids[(batch * steps): end] = [c[: relative_level] for c in cellids]
     parent_cellids.flush()

@@ -175,7 +175,8 @@ class IGEO7Index(DGGSIndex):
         steps = self._grid.chunk[0]
         batch = int(np.ceil(data.shape[0] / steps))
         ntf = tempfile.NamedTemporaryFile()
-        parent_cellids = np.memmap(ntf.name, mode='w+', shape=(len(data),), dtype='|S34')
+        cellidsize = self._grid.level + relative_level
+        parent_cellids = np.memmap(ntf.name, mode='w+', shape=(len(data),), dtype=f'|S{relative_level}')
         with ProcessPoolExecutor(mp) as executor:
             list(tqdm(executor.map(_gen_parents_from_cellids, *zip(*[(i, steps,
                                    data[(i * steps): ((i * steps) + steps) if (((i * steps) + steps) < len(data)) else len(data)],
