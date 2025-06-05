@@ -102,7 +102,7 @@ def igeo7regridding(ds: xr.Dataset) -> xr.Dataset:
                                *zip(*[(r[1], r[2], r[0], cellidsize) for i, r in enumerate(result)])),
                   total=len(result)))
     print(cells_id_array[0], flush=True)
-    cells_id_array = xr.Coordinates({'cell_ids': cells_id_array})
+    cells_id_array = xr.Coordinates({'cell_ids': cells_id_array}, indexes={})
     print('coordinate created', flush=True)
     ds = ds.assign_coords(cells_id_array)
     print('coordinate assigned', flush=True)

@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-dggrid4py = "^0.3.2"
+dggrid4py = "~0.4.1"
 xarray = {extras = ["io"], version = "^2025.1.2"}
 rasterio = "^1.4.3"
 rioxarray = "^0.18.1"
