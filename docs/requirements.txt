@@ -1,0 +1,12 @@
+sphinx==8
+sphinx-rtd-theme==3
+myst-parser==4
+dggrid4py==0.4.1
+xarray==2025.3.1
+rasterio
+rioxarray
+scipy
+xdggs
+numpy
+dask
+zarr
