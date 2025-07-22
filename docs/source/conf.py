@@ -28,8 +28,12 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
-    'myst_parser'
+    #'myst_parser',
+    'myst_nb'
 ]
+
+nb_execution_mode = "off"
+nb_number_source_lines = True
 
 exclude_patterns = []
 
