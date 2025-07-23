@@ -106,7 +106,7 @@ class IGEO7Index(DGGSIndex):
         if cls is None:
             raise ValueError(f"unknown DGGS grid name: {grid_name}")
         igeo7info = IGEO7Info.from_dict(var.attrs)
-        return cls(var.data, dim, igeo7info)
+        return cls(var.data.astype(str), dim, igeo7info)
 
     @classmethod
     def stack(cls, variables: Mapping[Any, xr.Variable], dim: Hashable):
