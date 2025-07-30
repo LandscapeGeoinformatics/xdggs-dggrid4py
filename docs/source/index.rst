@@ -1,7 +1,7 @@
 xdggs-dggrid4py documentation
 =============================
 
-A plugin of `xdggs <https://github.com/xarray-contrib/xdggs>`_ for `IGEO7 <https://agile-giss.copernicus.org/articles/6/32/2025/>`_ grid.  The plugin uses `DGGRIG <https://github.com/sahrk/DGGRID>`_ and the python library `dggrid4py <https://github.com/allixender/dggrid4py>`_ to work with IGEO7 DGGRS.
+A plugin of `xdggs <https://github.com/xarray-contrib/xdggs>`_ for `IGEO7 <https://agile-giss.copernicus.org/articles/6/32/2025/>`_ grid.  The plugin uses `DGGRID <https://github.com/sahrk/DGGRID>`_ and the python library `dggrid4py <https://github.com/allixender/dggrid4py>`_ to work with IGEO7 DGGRS.
 
 
 .. toctree::
