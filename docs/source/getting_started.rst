@@ -9,11 +9,19 @@ In order to work with IGEO7 (using `DGGRID <https://github.com/sahrk/DGGRID>`_),
     export DGGRID_PATH=<path to dggrid executable>
 
 
-Users can install the plugin from pip (inside the same virtual environment of ``dggrid``)
+Users can install the plugin from pip (under the same virtual environment of ``dggrid``):
 
 .. code-block:: bash
 
    pip install xdggs-dggrid4py
+
+To install the latest updates from GitHub (under the same virtual environment of ``dggrid``):
+
+
+.. code-block:: bash
+
+   pip install git+https://github.com/LandscapeGeoinformatics/xdggs-dggrid4py
+
 
 Installation for development
 ============================
