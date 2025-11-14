@@ -1,51 +1,32 @@
-from xdggs_dggrid4py.utils import register_igeo7regridding_method
-from dggrid4py import DGGRIDv7
-import numpy as np
+from xdggs_dggrid4py.utils import (
+    register_regridding_method,
+    _authalic_to_geodetic,
+    _geodetic_to_authalic
+)
+from dggrid4py import DGGRIDv8
 import geopandas as gpd
+import pandas as pd
 import shapely
-import tempfile
 import os
 
-try:
-    dggrid_path = os.environ['DGGRID_PATH']
-except KeyError:
-    raise Exception("DGGRID_PATH env var not found")
 
-
-@register_igeo7regridding_method
-def nearestpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
-    temp_dir = tempfile.TemporaryDirectory()
-    dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
-    ichunk, jchunk = np.meshgrid(icoords, jcoords, indexing='ij')
-    chunk_org = np.c_[ichunk.ravel(), jchunk.ravel()]
-    xidx, yidx = igeo7info.coordinate.index('x'), igeo7info.coordinate.index('y')
-    chunk_size = igeo7info.chunk
-    cellidsize=f'|S{igeo7info.level+2}'
-    chunk = gpd.GeoSeries(gpd.points_from_xy(chunk_org[:, xidx], chunk_org[:, yidx]), crs=igeo7info.src_epsg).to_crs('wgs84')
-    # nearestpoint
-    mini, maxi, minj, maxj = np.min(icoords), np.max(icoords), np.min(jcoords), np.max(jcoords)
-    if (xidx == 0):
-        region = gpd.GeoSeries([shapely.geometry.box(mini, minj, maxi, maxj)], crs=igeo7info.src_epsg).to_crs('wgs84')
-    else:
-        region = gpd.GeoSeries([shapely.geometry.box(minj, mini, maxj, maxi)], crs=igeo7info.src_epsg).to_crs('wgs84')
-    result = dggrid.grid_cell_centroids_for_extent(igeo7info.grid_name, igeo7info.level, clip_geom=region.geometry.values[0],
-                                                   output_address_type='Z7_STRING')
-    idx = chunk.geometry.sindex.nearest(result.geometry, return_all=False, return_distance=False)[1]
-    block_statistic = {'not_assigned': 0, 'reused': 0}
-    block_statistic['not_assigned'] = len(chunk) - len(np.unique(idx))
-    v, c = np.unique(idx, return_counts=True)
-    block_statistic['reused'] = len(v[np.where(c > 1)[0]])
-    cells = result['name'].astype(str).values
-    cellids_memmap, reindex_memmap = tempfile.mkstemp(dir=index_dir), tempfile.mkstemp(dir=index_dir)
-    cellids = np.memmap(cellids_memmap[1], mode='w+', shape=(len(result),), dtype=cellidsize)
-    reindex = np.memmap(reindex_memmap[1], mode='w+', shape=(len(result),), dtype=int)
-    # offset of i and j , calculate the "global" index for stacked original data
-    ioffset = i * chunk_size[0] * data_shape[1]
-    joffset = j * chunk_size[1]
-    idx = [ a%(len(jcoords)) + (ioffset + joffset + ((a//len(jcoords)) * data_shape[1])) for a in idx]
-    cellids[:] = cells
-    reindex[:] = idx # add global index offset to local index.
-    cellids.flush()
-    reindex.flush()
-    return (len(cells), cellids_memmap[1], reindex_memmap[1], block_statistic)
-
+@register_regridding_method
+def nearestpoint(data: pd.DataFrame, coordinates, tempdir, grid_name, refinement_level,
+                 crs, dggrid_meta_config, wgs84_to_authalic=True):
+    try:
+        dggrid_path = os.environ['DGGRID_PATH']
+    except KeyError:
+        raise Exception("DGGRID_PATH env var not found")
+    dggrid = DGGRIDv8(dggrid_path, tempdir, silent=True)
+    data.reset_index(drop=True, inplace=True)
+    data_centroids = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in zip(data[coordinates[0]], data[coordinates[1]])],
+                                   crs=crs).to_crs('wgs84')
+    clip_bound = shapely.box(*data_centroids.total_bounds)
+    clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic)[0]
+    hex_centroids_df = dggrid.grid_cell_centroids_for_extent(grid_name, refinement_level, clip_geom=clip_bound, **dggrid_meta_config).set_crs('wgs84')
+    hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic)
+    nearest_to_hex_centroids_idx = data_centroids.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
+    data = data.iloc[nearest_to_hex_centroids_idx].copy()
+    data['zone_id'] = hex_centroids_df['name']
+    data = data.drop(coordinates + ['spatial_ref'], axis=1).set_index('zone_id')
+    return data

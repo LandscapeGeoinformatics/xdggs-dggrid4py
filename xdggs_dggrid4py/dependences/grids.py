@@ -8,8 +8,7 @@ import tempfile
 import shapely
 
 from dggrid4py import DGGRIDv8
-from dggrid4py.auxlat import geoseries_to_authalic, geoseries_to_geodetic
-from geopandas.geoseries import GeoSeries
+from xdggs_dggrid4py.utils import _geodetic_to_authalic, _authalic_to_geodetic
 
 
 try:
@@ -18,46 +17,28 @@ except KeyError:
     raise Exception("DGGRID_PATH env var not found")
 
 GridsConfig = {'IGEO7': {"refinement_level_range": range(0, 22),
-                         "metaconfig": {"input_address_type":  'HIERNDX',
+                         "meta_config": {"input_address_type":  'HIERNDX',
                                         "input_hier_ndx_system": 'Z7',
-                                        "input_hier_ndx_form":  'int64',  # defaults to int representation
+                                        "input_hier_ndx_form":  'INT64',  # defaults to int representation
                                         "output_address_type":  'HIERNDX',
                                         "output_cell_label_type":  'OUTPUT_ADDRESS_TYPE',
                                         "output_hier_ndx_system":  'Z7',
-                                        "output_hier_ndx_form":  'int64',  # defaults to int representation
+                                        "output_hier_ndx_form":  'INT64',  # defaults to int representation
                                         "dggs_vert0_lon": 11.20
                                         }
                          },
                'ISEA7H': {"refinement_level_range": range(0, 22),
-                          "metaconfig": {"input_address_type":  'HIERNDX',
+                          "meta_config": {"input_address_type":  'HIERNDX',
                                          "input_hier_ndx_system": 'SEQNUM',
-                                         "input_hier_ndx_form":  'int64',  # defaults to int representation
+                                         "input_hier_ndx_form":  'INT64',  # defaults to int representation
                                          "output_address_type":  'HIERNDX',
                                          "output_cell_label_type":  'OUTPUT_ADDRESS_TYPE',
                                          "output_hier_ndx_system":  'SEQNUM',
-                                         "output_hier_ndx_form":  'int64',  # defaults to int representation
+                                         "output_hier_ndx_form":  'INT64',  # defaults to int representation
                                          "dggs_vert0_lon": 11.20
                                          }
                           },
                }
-
-
-# Alway returns a GeoSeries
-def _authalic_to_geodetic(geometry, convert: bool) -> GeoSeries:
-    if (not isinstance(geometry, GeoSeries)):
-        geometry = GeoSeries(geometry)
-    if (not convert):
-        return geometry
-    return geoseries_to_geodetic(geometry)
-
-
-# Alway returns a GeoSeries
-def _geodetic_to_authalic(geometry, convert: bool) -> GeoSeries:
-    if (not isinstance(geometry, GeoSeries)):
-        geometry = GeoSeries(geometry)
-    if (not convert):
-        return geometry
-    return geoseries_to_authalic(geometry)
 
 
 @dataclass(frozen=True)
@@ -90,7 +71,7 @@ class IGEO7Info(DGGSInfo):
         self, cell_ids: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids, self.grid_name, self.level,
-                                                                     **metaconfig)
+                                                                     **self._dggrid_meta_config)
         centroids_df.geometry = _authalic_to_geodetic(centroids_df.geometry, self._wgs84_geodetic_conversion)
         centroids = centroids_df.get_coordinates()
         return (centroids['x'].values, centroids['y'].values)
@@ -99,7 +80,7 @@ class IGEO7Info(DGGSInfo):
         assert len(lon) == len(lat), f"{__name__} the length of lon and lat are not equal"
         centroids = GeoSeries([shapely.Point(c[0], c[1]) for c in zip(lon, lat)])
         centroids = _geodetic_to_authalic(centroids, self._wgs84_geodetic_conversion)
-        centroids = self._dggrid.cells_for_geo_points(centroids, True, self.grid_name, self.level, **metaconfig)
+        centroids = self._dggrid.cells_for_geo_points(centroids, True, self.grid_name, self.level, **self._dggrid_meta_config)
         return centroids['name'].values
 
     def cell_boundaries(self, cell_ids, backend="shapely"):
@@ -107,7 +88,7 @@ class IGEO7Info(DGGSInfo):
             raise NotImplementedError("Only shapely is implemeneted")
         hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids, self.grid_name,
                                                                   self.level,
-                                                                  **metaconfig)
+                                                                  **self._dggrid_meta_config)
         geometry = _authalic_to_geodetic(hexagon_df.geometry, self._wgs84_geodetic_conversion)
         return geometry.values
 

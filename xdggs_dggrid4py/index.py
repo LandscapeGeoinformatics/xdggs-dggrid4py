@@ -35,12 +35,12 @@ class IGEO7Index(DGGSIndex):
             raise ValueError(f'unknown DGGS grid name: {var.attrs["grid_name"]}.')
         if (attrs["grid_name"] != 'IGEO7'):
             raise ValueError(f'The grid_name({attrs["grid_name"]}) is wrong for the IGEO7Index.')
-        metaconfig = GridsConfig["IGEO7"]["metaconfig"]
-        metaconfig.update({"dggs_vert0_lon": attrs.get("_dggs_vert0_lon", 11.20)})
+        dggrid_meta_config = GridsConfig["IGEO7"]["meta_config"]
+        dggrid_meta_config.update({"dggs_vert0_lon": attrs.get("_dggs_vert0_lon", 11.20)})
         if (isinstance(var.values[0], str)):
-            metaconfig.update({"input_hier_ndx_form": "DIGIT_STRING"})
-            metaconfig.update({"output_hier_ndx_form": "DIGIT_STRING"})
-        attrs.update({"_dggrid_meta_config": metaconfig})
+            dggrid_meta_config.update({"input_hier_ndx_form": "DIGIT_STRING"})
+            dggrid_meta_config.update({"output_hier_ndx_form": "DIGIT_STRING"})
+        attrs.update({"_dggrid_meta_config": dggrid_meta_config})
         igeo7info = IGEO7Info.from_dict(attrs)
         return cls(var.data, dim, igeo7info)
 
