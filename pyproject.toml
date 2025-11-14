@@ -6,17 +6,16 @@ authors = ["Wai Tik Chan <wai.tik.chan@ut.ee>", "Alexander Kmoch <alexander.kmoc
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-dggrid4py = "~0.4.1"
+python = "^3.11"
+dggrid4py = "~0.5.2"
 xarray = {extras = ["io"], version = "^2025.1.2"}
 rasterio = "^1.4.3"
 rioxarray = "^0.18.1"
-xdggs = "^0.2.0"
 shapely = "^2.0.7"
-tqdm = "^4.67.1"
-numpy = "^1.24.1"
 dask = "^2025.2.0"
 zarr = "2.18.3"
+numcodecs = "^0.15.0"
+xdggs = "^0.4.0"
 
 
 [build-system]

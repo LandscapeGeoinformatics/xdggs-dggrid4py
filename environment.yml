@@ -2,7 +2,7 @@ name: xdggs_dev
 channels:
   - conda-forge
 dependencies:
-  - python
+  - python==3.12
   - gdal
   - proj
   - dggrid
