@@ -64,10 +64,9 @@ def _authalic_to_geodetic(geometry, convert: bool, polygon: bool = True) -> GeoS
     else:
         # stack lon_array,lat_array at the last dim, squeeze the dim
         # ex. 40000 polygons = [40000,1, 2] after stack, then squeeze it to [40000, 2]
-        geom = geom.squeeze()
+        geom = geom.squeeze(axis=1)
         geom = np.apply_along_axis(_create_point, -1, geom)
-
-    return GeoSeries(geom)
+    return GeoSeries([geom])
 
 
 # Alway returns a GeoSeries
@@ -95,10 +94,9 @@ def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True) -> GeoS
     else:
         # stack lon_array,lat_array at the last dim, squeeze the dim
         # ex. 40000 polygons = [40000,1, 2] after stack, then squeeze it to [40000, 2]
-        geom = geom.squeeze()
+        geom = geom.squeeze(axis=1)
         geom = np.apply_along_axis(_create_point, -1, geom)
-
-    return GeoSeries(geom)
+    return GeoSeries([geom])
 
 
 def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):

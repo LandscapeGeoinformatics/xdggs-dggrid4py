@@ -50,7 +50,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     starting_coordinate = np.array([ds[coordinates[0]].min(), ds[coordinates[1]].max()])
     coordinate_step_size = abs(ds[coordinates[0]][0] - ds[coordinates[0]][1]).values
     # estimate the number of zones per block
-    result_block_size = int(estimate_number_of_zones / np.prod(ds_dask_array.numblocks) * 1.5)
+    result_block_size = int(np.ceil(estimate_number_of_zones / np.prod(ds_dask_array.numblocks)) * 2)
     print(result_block_size)
 
     ds_dask_array = ds_dask_array.map_blocks(regridding_method[method], meta=metadf, drop_axis=0, chunks=(-1, -1),
@@ -58,7 +58,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
                                                 'coordinate_step_size': coordinate_step_size,
                                                 'working_dir': tempdir.name,
                                                 'result_block_size': result_block_size,
-                                                'grid_name': 'IGEO7',
+                                                'grid_name': grid_name,
                                                 'refinement_level': refinement_level,
                                                 'crs': original_crs,
                                                 'dggrid_meta_config': dggrid_meta_config,
