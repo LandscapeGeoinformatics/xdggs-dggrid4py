@@ -1,43 +1,45 @@
 from xdggs_dggrid4py.utils import (
     register_regridding_method,
     _authalic_to_geodetic,
-    _geodetic_to_authalic
+    _geodetic_to_authalic,
+    _create_point
 )
 from xdggs_dggrid4py.dependences.grids import zone_id_repr_list
 from dggrid4py import DGGRIDv8
 import dask.array as da
+import xarray as xr
 import numpy as np
 import geopandas as gpd
-import pandas as pd
+import tempfile
 import shapely
-import time
 import os
 import warnings
 warnings.filterwarnings("ignore")
 
 
 @register_regridding_method
-def nearestpoint(data: pd.DataFrame, coordinates, tempdir, grid_name, refinement_level,
-                 crs, dggrid_meta_config, wgs84_to_authalic=True):
+def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
+                 refinement_level, dggrid_meta_config, wgs84_to_authalic=True):
     try:
         dggrid_path = os.environ['DGGRID_PATH']
     except KeyError:
         raise Exception("DGGRID_PATH env var not found")
-    dggrid = DGGRIDv8(dggrid_path, tempdir, silent=True)
-    data.reset_index(drop=True, inplace=True)
-    data_centroids = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in zip(data[coordinates[0]], data[coordinates[1]])],
-                                   crs=crs).to_crs('wgs84')
-    print(data_centroids.total_bounds)
-    clip_bound = shapely.box(*data_centroids.total_bounds)
-    clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic)[0]
+    tempdir = tempfile.TemporaryDirectory()
+    dggrid = DGGRIDv8(dggrid_path, tempdir.name, silent=True)
+
+    data_centroids = np.concatenate([data['zone_id'][coordinates[0]].values.reshape(-1, 1),
+                                     data['zone_id'][coordinates[1]].values.reshape(-1, 1)], axis=-1)
+
+    data_centroids = np.apply_along_axis(_create_point, -1, data_centroids)
+    data_centroids = gpd.GeoSeries(data_centroids, crs=original_crs).to_crs('wgs84')
+    clip_bound = _geodetic_to_authalic(shapely.box(*data_centroids.total_bounds), wgs84_to_authalic)[0]
     hex_centroids_df = dggrid.grid_cell_centroids_for_extent(grid_name, refinement_level, clip_geom=clip_bound, **dggrid_meta_config).set_crs('wgs84')
-    s = time.time()
     hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False)
-    print(f' convert {hex_centroids_df.shape} : {time.time()-s}')
     nearest_to_hex_centroids_idx = data_centroids.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
-    data = data.iloc[nearest_to_hex_centroids_idx].copy()
-    data['zone_id'] = hex_centroids_df['name']
-    data = data.drop(coordinates, axis=1).set_index('zone_id')
+    data = data.isel({'zone_id': nearest_to_hex_centroids_idx})
+    # force not to create index
+    data = data.assign_coords(xr.Coordinates({'zone_id': hex_centroids_df['name'].values}, indexes={}))
+    data = data.drop_vars(coordinates)
     return data
 
 
