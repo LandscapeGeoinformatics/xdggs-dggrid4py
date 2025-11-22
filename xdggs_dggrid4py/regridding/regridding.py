@@ -11,8 +11,8 @@ from dask.diagnostics import ProgressBar
 
 
 def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x', 'y'], original_crs=None,
-               refinement_level=-1, zone_id_repr="textural", wgs84_geodetics_conversion=True,
-               _dggs_vert0_lon=11.20) -> xr.Dataset:
+               refinement_level=-1, zone_id_repr="textural", wgs84_geodetic_conversion=True,
+               dggs_vert0_lon=11.20) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
     if (grid_name.upper() not in list(GridsConfig.keys())):
@@ -36,20 +36,22 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
     ds = ds.drop_vars('spatial_ref')
     grid_name = grid_name.upper()
     dggrid_meta_config = GridsConfig[grid_name]['meta_config']
-    dggrid_meta_config.update({"dggs_vert0_lon": _dggs_vert0_lon})
+    dggrid_meta_config.update({"dggs_vert0_lon": dggs_vert0_lon})
     zone_id_repr = zone_id_repr.lower()
     dggrid_meta_config.update({'input_hier_ndx_form': zone_id_repr_list[zone_id_repr][0],
                                'output_hier_ndx_form': zone_id_repr_list[zone_id_repr][0]})
     ds = ds.stack(zone_id=([coordinates[0], coordinates[1]]), create_index=False)
     converted_ds = regridding_method[method](ds, original_crs, coordinates, grid_name, refinement_level,
-                                             dggrid_meta_config, wgs84_geodetics_conversion)
+                                             dggrid_meta_config, wgs84_geodetic_conversion)
     converted_ds = converted_ds.assign_coords({'spatial_ref': 0})
     converted_ds.spatial_ref.attrs = spatial_ref_attrs
-    converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level}
+    converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level,
+                                     'igeo7_wgs84_geodetic_conversion': wgs84_geodetic_conversion,
+                                     'igeo7_dggs_vert0_lon': dggs_vert0_lon}
     return converted_ds
 
 def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoint", coordinates=['x', 'y'], original_crs=None,
-                         refinement_level=-1, zone_id_repr="textural", wgs84_geodetics_conversion=True, _dggs_vert0_lon=11.20) -> xr.Dataset:
+                         refinement_level=-1, zone_id_repr="textural", wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
     if (grid_name.upper() not in list(GridsConfig.keys())):
@@ -75,7 +77,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     ds = ds.drop_vars('spatial_ref')
     grid_name = grid_name.upper()
     dggrid_meta_config = GridsConfig[grid_name]['meta_config']
-    dggrid_meta_config.update({"dggs_vert0_lon": _dggs_vert0_lon})
+    dggrid_meta_config.update({"dggs_vert0_lon": dggs_vert0_lon})
     zone_id_repr = zone_id_repr.lower()
     dggrid_meta_config.update({'input_hier_ndx_form': zone_id_repr_list[zone_id_repr][0],
                                'output_hier_ndx_form': zone_id_repr_list[zone_id_repr][0]})
@@ -101,7 +103,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
                                                 'refinement_level': refinement_level,
                                                 'crs': original_crs,
                                                 'dggrid_meta_config': dggrid_meta_config,
-                                                'wgs84_to_authalic': wgs84_geodetics_conversion,
+                                                'wgs84_to_authalic': wgs84_geodetic_conversion,
                                                 'zone_id_repr': zone_id_repr
                                                 }).compute(scheduler='processes')
     # The result of map_blocks is still in 2D , it replaces the original block (e.g. 200,200) with (result_block_size, number_of_vars+1)
@@ -120,5 +122,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
         converted_ds['zone_id'] = converted_ds['zone_id'].astype(np.uint64)
     converted_ds = converted_ds.assign_coords({'spatial_ref': 0})
     converted_ds.spatial_ref.attrs = spatial_ref_attrs
-    converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level}
+    converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level,
+                                     'igeo7_wgs84_geodetic_conversion': _wgs84_geodetic_conversion,
+                                     'igeo7_dggs_vert0_lon': dggs_vert0_lon}
     return converted_ds

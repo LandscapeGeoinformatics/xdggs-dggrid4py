@@ -49,8 +49,8 @@ GridsConfig = {'IGEO7': {"refinement_level_range": range(0, 22),
 class IGEO7Info(DGGSInfo):
     grid_name: str
     _dggrid_meta_config: dict
-    _wgs84_geodetic_conversion: bool = True
-    _dggs_vert0_lon: decimal.Decimal | float = 11.20
+    igeo7_wgs84_geodetic_conversion: bool = True
+    igeo7_dggs_vert0_lon: decimal.Decimal | float = 11.20
     _dggrid = DGGRIDv8(dggrid_path, tempfile.TemporaryDirectory().name, silent=True)
 
     valid_parameters: ClassVar[dict[str, Any]] = {"level": GridsConfig["IGEO7"]["refinement_level_range"]}
@@ -68,8 +68,8 @@ class IGEO7Info(DGGSInfo):
 
     def to_dict(self: Self) -> dict[str, Any]:
         return {"level": self.level, "grid_name": self.grid_name,
-                "_wgs84_geodetic_conversion": self._wgs84_geodetic_conversion,
-                "_dggs_vert0_lon": self._dggs_vert0_lon}
+                "igeo7_wgs84_geodetic_conversion": self._wgs84_geodetic_conversion,
+                "igeo7_dggs_vert0_lon": self._dggs_vert0_lon}
 
     def cell_ids2geographic(
         self, cell_ids: np.ndarray
