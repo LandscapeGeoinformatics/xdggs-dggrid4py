@@ -123,6 +123,6 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     converted_ds = converted_ds.assign_coords({'spatial_ref': 0})
     converted_ds.spatial_ref.attrs = spatial_ref_attrs
     converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level,
-                                     'igeo7_wgs84_geodetic_conversion': _wgs84_geodetic_conversion,
+                                     'igeo7_wgs84_geodetic_conversion': wgs84_geodetic_conversion,
                                      'igeo7_dggs_vert0_lon': dggs_vert0_lon}
     return converted_ds

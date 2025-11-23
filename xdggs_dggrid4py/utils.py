@@ -116,9 +116,9 @@ def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
     a = (np.sin((lon2 - lon1) / 2) ** 2 + np.cos(lon1) * np.cos(lon2) * np.sin(0) ** 2)
     d = 2 * np.arcsin(np.sqrt(a))
     area = abs(d * ((np.power(R, 2) * np.sin(lat2)) - (np.power(R, 2) * np.sin(lat1))))
-    #print(f'Total Bounds Area (km^2): {area}')
+    print(f'{__name__} area of extent (km^2): {area}')
     avg_area_per_data = (area / num_data)
-    #print(f'Area per center point (km^2): {avg_area_per_data}')
+    print(f'{__name__} average area per square grid (km^2): {avg_area_per_data}')
     dggrid_resolution = dggs.grid_stats_table('ISEA7H', 30)
     filter_ = dggrid_resolution[dggrid_resolution['Area (km^2)'] < avg_area_per_data]
     resolution = 5
