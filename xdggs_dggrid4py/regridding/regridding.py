@@ -50,8 +50,10 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
                                      'igeo7_dggs_vert0_lon': dggs_vert0_lon}
     return converted_ds
 
+
 def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoint", coordinates=['x', 'y'], original_crs=None,
-                         refinement_level=-1, zone_id_repr="textural", wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20) -> xr.Dataset:
+                         refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1,
+                         wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
     if (grid_name.upper() not in list(GridsConfig.keys())):
@@ -68,7 +70,8 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     minx, miny = ds[coordinates[0]].min().values, ds[coordinates[1]].min().values
     maxx, maxy = ds[coordinates[0]].max().values, ds[coordinates[1]].max().values
     total_rows = len(ds[coordinates[0]]) * len(ds[coordinates[1]])
-    auto_rf_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
+    if (refinement_level == -1 and estimate_number_of_zones == -1):
+        auto_rf_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
     print(estimate_number_of_zones)
     if (refinement_level == -1):
         refinement_level = auto_rf_level
