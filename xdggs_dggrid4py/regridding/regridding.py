@@ -84,6 +84,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     zone_id_repr = zone_id_repr.lower()
     dggrid_meta_config.update({'input_hier_ndx_form': zone_id_repr_list[zone_id_repr][0],
                                'output_hier_ndx_form': zone_id_repr_list[zone_id_repr][0]})
+    # beware that the dimension of the ds_dask_array, it may be in 3D with multi-bands (bands, y, x)
     ds_dask_array = ds.to_dataarray().data
     # meta template
     columns_meta = {c: pd.Series(dtype=t) for c, t in ds.items()}
@@ -93,8 +94,9 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     ProgressBar().register()
     starting_coordinate = np.array([ds[coordinates[0]].min(), ds[coordinates[1]].max()])
     coordinate_step_size = abs(ds[coordinates[0]][0] - ds[coordinates[0]][1]).values
-    # estimate the number of zones per block
-    result_block_size = int(np.ceil(estimate_number_of_zones / np.prod(ds_dask_array.numblocks)) * 2)
+    # estimate the number of zones per block,
+    num_blocks = ds_dask_array.numblocks[-2] * ds_dask_array.numblocks[-1]
+    result_block_size = int(np.ceil(estimate_number_of_zones / num_blocks) * 2)
     print(result_block_size)
 
     ds_dask_array = ds_dask_array.map_blocks(regridding_method[method], meta=metadf, drop_axis=0, chunks=(-1, -1),
