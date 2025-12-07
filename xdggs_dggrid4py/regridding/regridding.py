@@ -72,10 +72,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     total_rows = len(ds[coordinates[0]]) * len(ds[coordinates[1]])
     if (refinement_level == -1 and estimate_number_of_zones == -1):
         auto_rf_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
-    print(estimate_number_of_zones)
-    if (refinement_level == -1):
         refinement_level = auto_rf_level
-        print(f'{__name__} auto refinement level : {refinement_level}')
     spatial_ref_attrs = ds.spatial_ref.attrs.copy()
     ds = ds.drop_vars('spatial_ref')
     grid_name = grid_name.upper()
@@ -97,7 +94,9 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     # estimate the number of zones per block,
     num_blocks = ds_dask_array.numblocks[-2] * ds_dask_array.numblocks[-1]
     result_block_size = int(np.ceil(estimate_number_of_zones / num_blocks) * 2)
-    print(result_block_size)
+    print(f'{__name__} auto refinement level: {refinement_level}, \
+                       estimate zones       : {estimate_number_of_zones},\
+                       estimate block size  : {result_block_size}')
 
     ds_dask_array = ds_dask_array.map_blocks(regridding_method[method], meta=metadf, drop_axis=0, chunks=(-1, -1),
                                              **{'starting_coordinate': starting_coordinate,

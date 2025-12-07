@@ -13,6 +13,30 @@ regridding_method = {}
 wgs84 = Ellipsoids.WGS84
 
 
+igeo7_grid_zones_stats = {0: {"Cells": 12, "Area (km^2)": 51006562.1724089, "CLS (km)": 8199.5003701},
+                          1: {"Cells": 72, "Area (km^2)": 7286651.7389156, "CLS (km)": 3053.2232428},
+                          2: {"Cells": 492, "Area (km^2)": 1040950.2484165, "CLS (km)": 1151.6430095},
+                          3: {"Cells": 3432, "Area (km^2)": 148707.1783452, "CLS (km)": 435.1531492},
+                          4: {"Cells": 24012, "Area (km^2)": 21243.8826207, "CLS (km)": 164.4655799},
+                          5: {"Cells": 168072, "Area (km^2)": 3034.8403744, "CLS (km)": 62.1617764},
+                          6: {"Cells": 1176492, "Area (km^2)": 433.5486249, "CLS (km)": 23.4949231},
+                          7: {"Cells": 8235432, "Area (km^2)": 61.9355178, "CLS (km)": 8.8802451},
+                          8: {"Cells": 57648012, "Area (km^2)": 8.8479311, "CLS (km)": 3.3564171},
+                          9: {"Cells": 403536072, "Area (km^2)": 1.2639902, "CLS (km)": 1.2686064},
+                          10: {"Cells": 2824752492, "Area (km^2)": 0.18057, "CLS (km)": 0.4794882},
+                          11: {"Cells": 19773267432, "Area (km^2)": 0.0257957, "CLS (km)": 0.1812295},
+                          12: {"Cells": 138412872012, "Area (km^2)": 0.0036851, "CLS (km)": 0.0684983},
+                          13: {"Cells": 968890104072, "Area (km^2)": 0.0005264, "CLS (km)": 0.0258899},
+                          14: {"Cells": 6782230728492, "Area (km^2)": 0.0000752, "CLS (km)": 0.0097855},
+                          15: {"Cells": 47475615099432, "Area (km^2)": 0.0000107, "CLS (km)": 0.0036986},
+                          16: {"Cells": 332329305696012, "Area (km^2)": 0.0000015348198699, "CLS (km)": 0.0013979246590466},
+                          17: {"Cells": 2326305139872072, "Area (km^2)": 0.0000002192599814, "CLS (km)": 0.0005283658570631},
+                          18: {"Cells": 16284135979104492, "Area (km^2)": 0.0000000313228545, "CLS (km)": 0.0001997035227209},
+                          19: {"Cells": 113988951853731432, "Area (km^2)": 0.0000000044746935, "CLS (km)": 0.0000754808367233},
+                          20: {"Cells": 797922662976120012, "Area (km^2)": 0.0000000006392419, "CLS (km)": 0.0000285290746744},
+                           }
+
+
 def register_regridding_method(func):
     regridding_method[func.__name__] = func
     print(f'Registered regridding method {func.__name__}')
@@ -100,16 +124,8 @@ def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True) -> GeoS
 
 
 def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
-    try:
-        dggrid_path = os.environ['DGGRID_PATH']
-    except KeyError:
-        raise Exception("DGGRID_PATH env var not found")
-    dggs = DGGRIDv8(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
-    # print('Calculate Auto resolution')
     df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
-    #print(f'Total Bounds ({df.crs}): {df.total_bounds}')
     df = df.to_crs('wgs84')
-    #print(f'Total Bounds (wgs84): {df.total_bounds}')
     R = 6371
     lon1, lat1, lon2, lat2 = df.total_bounds
     lon1, lon2, lat1, lat2 = np.deg2rad(lon1), np.deg2rad(lon2), np.deg2rad(lat1), np.deg2rad(lat2)
@@ -119,16 +135,12 @@ def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
     print(f'{__name__} area of extent (km^2): {area}')
     avg_area_per_data = (area / num_data)
     print(f'{__name__} average area per square grid (km^2): {avg_area_per_data}')
-    dggrid_resolution = dggs.grid_stats_table('ISEA7H', 30)
-    filter_ = dggrid_resolution[dggrid_resolution['Area (km^2)'] < avg_area_per_data]
+    filter_ = [k for k, v in igeo7_grid_zones_stats.items() if (igeo7_grid_zones_stats[k]['Area (km^2)'] < avg_area_per_data)]
     resolution = 5
     if (len(filter_) > 0):
-        resolution = filter_.iloc[0, 0]
-        #print(f'Auto resolution : {resolution}, area: {filter_.iloc[0,2]} km2')
+        resolution = filter_[0]
     if (rf > -1):
-        est_numberofcells = int(np.ceil(area / dggrid_resolution.iloc[rf, 2]))
+        est_numberofcells = int(np.ceil(area / igeo7_grid_zones_stats[rf]['Area (km^2)']))
     else:
-        est_numberofcells = int(np.ceil(area / dggrid_resolution.iloc[resolution, 2]))
+        est_numberofcells = int(np.ceil(area / igeo7_grid_zones_stats[resolution]['Area (km^2)']))
     return resolution, est_numberofcells
-
-
