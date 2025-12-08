@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Chan"
+  given-names: "Wai Tik"
+  orcid: "https://orcid.org/0009-0005-3779-139X"
+- family-names: "Kmoch"
+  given-names: "Alexander"
+  orcid: "https://orcid.org/0000-0003-4386-4450"
+title: "xdggs-dggrid4py: A plugin for Xarray-xdggs that implements DGGRID as DGGS provider"
+version: 0.1.3
+doi: 10.5281/zenodo.xxx
+date-released: 2025-06-24
+url: "https://github.com/LandscapeGeoinformatics/xdggs-dggrid4py"
