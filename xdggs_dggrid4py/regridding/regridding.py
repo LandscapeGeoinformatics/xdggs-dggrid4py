@@ -53,7 +53,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
 
 def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoint", coordinates=['x', 'y'], original_crs=None,
                          refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1,
-                         wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20) -> xr.Dataset:
+                         wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20, **dggrid_kwargs) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
     if (grid_name.upper() not in list(GridsConfig.keys())):
@@ -81,6 +81,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     zone_id_repr = zone_id_repr.lower()
     dggrid_meta_config.update({'input_hier_ndx_form': zone_id_repr_list[zone_id_repr][0],
                                'output_hier_ndx_form': zone_id_repr_list[zone_id_repr][0]})
+    dggrid_meta_config.update(dggrid_kwargs)
     # beware that the dimension of the ds_dask_array, it may be in 3D with multi-bands (bands, y, x)
     ds_dask_array = ds.to_dataarray().data
     # meta template
