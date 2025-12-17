@@ -52,7 +52,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
 
 
 def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoint", coordinates=['x', 'y'], original_crs=None,
-                         refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1,
+                         refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1, assign_zones_to_data=True,
                          wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20, **dggrid_kwargs) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
@@ -65,7 +65,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     except AttributeError:
         print(f"{__name__} No `spatial_ref` found in the dataset")
         if (original_crs is None):
-            raise Exception(f"{__name__} No original CRS is defined.")
+            raise Exception(f"{__name__} The original CRS is not found.")
         pass
     minx, miny = ds[coordinates[0]].min().values, ds[coordinates[1]].min().values
     maxx, maxy = ds[coordinates[0]].max().values, ds[coordinates[1]].max().values
@@ -93,12 +93,18 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     starting_coordinate = np.array([ds[coordinates[0]].min(), ds[coordinates[1]].max()])
     coordinate_step_size = abs(ds[coordinates[0]][0] - ds[coordinates[0]][1]).values
     # estimate the number of zones per block,
+    # assign_zones_to_data is a flag to indicate how data is assigned to zones
+    # assign_zones_to_data == True -> data_centroids.geometry.sindex.nearest(hex_centroids_df.geometry,
+    # the caller of sindex.nearest is reversed when it is set to False, zone.geometry.sindex.nearest(data centroids)
     num_blocks = ds_dask_array.numblocks[-2] * ds_dask_array.numblocks[-1]
-    result_block_size = int(np.ceil(estimate_number_of_zones / num_blocks) * 2)
+    result_block_size = ds_dask_array.chunksize[-2] * ds_dask_array.chunksize[-1]
+    if (assign_zones_to_data):
+        result_block_size = int(np.ceil(estimate_number_of_zones / num_blocks) * 2)
+    else:
+        result_block_size = ds_dask_array.chunksize[-2] * ds_dask_array.chunksize[-1]
     print(f'{__name__} auto refinement level: {refinement_level}, \
                        estimate zones       : {estimate_number_of_zones},\
                        estimate block size  : {result_block_size}')
-
     ds_dask_array = ds_dask_array.map_blocks(regridding_method[method], meta=metadf, drop_axis=0, chunks=(-1, -1),
                                              **{'starting_coordinate': starting_coordinate,
                                                 'coordinate_step_size': coordinate_step_size,
@@ -107,6 +113,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
                                                 'grid_name': grid_name,
                                                 'refinement_level': refinement_level,
                                                 'crs': original_crs,
+                                                'assign_zones_to_data': assign_zones_to_data,
                                                 'dggrid_meta_config': dggrid_meta_config,
                                                 'wgs84_to_authalic': wgs84_geodetic_conversion,
                                                 'zone_id_repr': zone_id_repr

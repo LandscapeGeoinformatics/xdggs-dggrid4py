@@ -45,7 +45,7 @@ def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
 
 @register_regridding_method
 def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_step_size, result_block_size, working_dir,
-                           grid_name, refinement_level, crs, dggrid_meta_config, wgs84_to_authalic=True, zone_id_repr='textural',
+                           grid_name, refinement_level, crs, assign_zones_to_data, dggrid_meta_config, wgs84_to_authalic=True, zone_id_repr='textural',
                            block_info=None):
     # more on block_info :https://docs.dask.org/en/stable/generated/dask.array.map_blocks.html
     try:
@@ -78,10 +78,17 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False)
     if (zone_id_repr == 'int'):
         hex_centroids_df['name'] = hex_centroids_df['name'].apply(int, base=16)
-    nearest_to_hex_centroids_idx = data_points.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
+    if (assign_zones_to_data):
+        centroids_idx = data_points.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
+    else:
+        centroids_idx = hex_centroids_df.geometry.sindex.nearest(data_points.geometry, return_all=False, return_distance=False)[1]
     no_data = zone_id_repr_list[zone_id_repr][1]
     result_dtype = object if (zone_id_repr != 'int') else np.float64
     result_block = da.full((result_block_size, num_of_data_variables + 1), no_data, dtype=result_dtype, chunks=-1)
-    result_block[:len(nearest_to_hex_centroids_idx), :num_of_data_variables] = data[nearest_to_hex_centroids_idx]  # .astype(object)
-    result_block[:len(nearest_to_hex_centroids_idx), -1] = hex_centroids_df['name'].values
+    if (assign_zones_to_data):
+        result_block[:len(centroids_idx), :num_of_data_variables] = data[nearest_to_hex_centroids_idx]  # .astype(object)
+        result_block[:len(centroids_idx), -1] = hex_centroids_df['name'].values
+    else:
+        result_block[:len(centroids_idx), :num_of_data_variables] = data
+        result_block[:len(centroids_idx), -1] = hex_centroids_df.iloc[centroids_idx]['name'].values
     return result_block
