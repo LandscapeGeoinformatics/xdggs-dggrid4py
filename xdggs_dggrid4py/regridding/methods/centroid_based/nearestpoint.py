@@ -86,7 +86,7 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     result_dtype = object if (zone_id_repr != 'int') else np.float64
     result_block = da.full((result_block_size, num_of_data_variables + 1), no_data, dtype=result_dtype, chunks=-1)
     if (assign_zones_to_data):
-        result_block[:len(centroids_idx), :num_of_data_variables] = data[nearest_to_hex_centroids_idx]  # .astype(object)
+        result_block[:len(centroids_idx), :num_of_data_variables] = data[centroids_idx]  # .astype(object)
         result_block[:len(centroids_idx), -1] = hex_centroids_df['name'].values
     else:
         result_block[:len(centroids_idx), :num_of_data_variables] = data
