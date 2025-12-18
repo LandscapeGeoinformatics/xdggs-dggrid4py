@@ -18,7 +18,7 @@ except KeyError:
 
 # IGEO7 doesn't support int zone id repr, the int here means hexadecimal (hexstring to int)
 # The dictionary holds the cooresponding `input/output_hier_ndx_form` values and the nodata representation for regridding only.
-zone_id_repr_list = {"int": ["INT64", np.nan], "hexstring": ["INT64", np.nan], "textural": ["DIGIT_STRING", '']}
+zone_id_repr_list = {"int": ["INT64", np.nan], "hexstring": ["INT64", ''], "textural": ["DIGIT_STRING", '']}
 
 GridsConfig = {'IGEO7': {"refinement_level_range": range(0, 22),
                          "meta_config": {"input_address_type":  'HIERNDX',
