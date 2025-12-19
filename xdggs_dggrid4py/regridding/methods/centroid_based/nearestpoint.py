@@ -16,22 +16,6 @@ import os
 import warnings
 warnings.filterwarnings("ignore")
 
-def z7int_to_z7textual(z7_int_zone_id: int, refinement_level=int):
-    hexstring = hex(z7_int_zone_id)
-    z7textual = z7hex_to_z7string(hexstring)
-    return z7textual[: refinement_level + 2]
-
-def z7textual_to_z7int(z7_textual_zone_id: str):
-    base, digits = z7_textual_zone_id[:2], z7_textual_zone_id[2:]
-    digits = digits.ljust(20, '7')
-    binary_repr = [np.binary_repr(int(base), width=4)]
-    binary_digits = [np.binary_repr(int(d), width=3) for d in digits]
-    binary_repr += binary_digits
-    binary_repr = ''.join(binary_repr)
-    return int(binary_repr, 2)
-
-vz7int_to_z7textual = np.vectorize(z7int_to_z7textual)
-vz7textual_to_z7int = np.vectorize(z7textual_to_z7int)
 
 @register_regridding_method
 def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
@@ -94,8 +78,6 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False)
     if (zone_id_repr == 'int'):
         hex_centroids_df['name'] = hex_centroids_df['name'].apply(int, base=16)
-        z7textual = vz7int_to_z7textual(hex_centroids_df['name'].values, refinement_level)
-        hex_centroids_df['name'] = z7textual_to_z7int(z7textual)
     if (assign_zones_to_data):
         centroids_idx = data_points.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
     else:
