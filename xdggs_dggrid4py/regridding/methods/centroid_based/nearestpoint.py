@@ -16,7 +16,6 @@ import os
 import warnings
 warnings.filterwarnings("ignore")
 
-
 @register_regridding_method
 def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
                  refinement_level, dggrid_meta_config, wgs84_to_authalic=True):
@@ -83,8 +82,7 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     else:
         centroids_idx = hex_centroids_df.geometry.sindex.nearest(data_points.geometry, return_all=False, return_distance=False)[1]
     no_data = zone_id_repr_list[zone_id_repr][1]
-    result_dtype = object if (zone_id_repr != 'int') else np.float64
-    result_block = da.full((result_block_size, num_of_data_variables + 1), no_data, dtype=result_dtype, chunks=-1)
+    result_block = da.full((result_block_size, num_of_data_variables + 1), no_data, dtype=object, chunks=-1)
     if (assign_zones_to_data):
         result_block[:len(centroids_idx), :num_of_data_variables] = data[centroids_idx]  # .astype(object)
         result_block[:len(centroids_idx), -1] = hex_centroids_df['name'].values

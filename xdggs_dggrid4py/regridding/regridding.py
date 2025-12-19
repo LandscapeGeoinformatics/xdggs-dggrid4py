@@ -122,16 +122,14 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     # So, we have to concate all the blocks then reshape to form the final result (i.e. (num_blocks * result_block_size, number_of_vars+1) ).
     ds_dask_array = da.concatenate([ds_dask_array.blocks.ravel()], axis=1).reshape(-1, len(ds.data_vars) + 1)
     # select zone_id != no_data from the result
+    ds_dask_array = ds_dask_array[da.compute(da.where(ds_dask_array[:, -1] != zone_id_repr_list[zone_id_repr][1]))[0]]
+    ds_dask_array = ds_dask_array.to_dask_dataframe(list(ds.data_vars.keys()) + ['zone_id'])
     if (zone_id_repr == 'int'):
-        ds_dask_array = ds_dask_array[~ da.isnan(ds_dask_array[:, -1])]
-    else:
-        ds_dask_array = ds_dask_array[da.compute(da.where(ds_dask_array[:, -1] != ''))[0]]
-    ds_dask_array = ds_dask_array.to_dask_dataframe(list(ds.data_vars.keys()) + ['zone_id']).set_index('zone_id')
-    converted_ds = xr.Dataset.from_dataframe(ds_dask_array)
+        ds_dask_array['zone_id'] = ds_dask_array['zone_id'].astype(np.uint64)
+    ds_dask_array = ds_dask_array.set_index('zone_id')
     for var_name, dtype in ds.data_vars.dtypes.items():
-        converted_ds[var_name] = converted_ds.data_vars[var_name].astype(dtype)
-    if (zone_id_repr == 'int'):
-        converted_ds['zone_id'] = converted_ds['zone_id'].astype(np.uint64)
+        ds_dask_array[var_name] = ds_dask_array[var_name].astype(dtype)
+    converted_ds = xr.Dataset.from_dataframe(ds_dask_array)
     converted_ds = converted_ds.assign_coords({'spatial_ref': 0})
     converted_ds.spatial_ref.attrs = spatial_ref_attrs
     converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level,
