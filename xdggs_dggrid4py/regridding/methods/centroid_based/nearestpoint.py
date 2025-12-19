@@ -6,7 +6,6 @@ from xdggs_dggrid4py.utils import (
 )
 from xdggs_dggrid4py.dependences.grids import zone_id_repr_list
 from dggrid4py import DGGRIDv8
-from dggrid4py.igeo7 import z7hex_to_z7string
 import dask.array as da
 import xarray as xr
 import numpy as np
@@ -96,7 +95,7 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     if (zone_id_repr == 'int'):
         hex_centroids_df['name'] = hex_centroids_df['name'].apply(int, base=16)
         z7textual = vz7int_to_z7textual(hex_centroids_df['name'].values, refinement_level)
-        hex_centroids_df['name'] = vz7textual_to_z7int(z7textual)
+        hex_centroids_df['name'] = z7textual_to_z7int(z7textual)
     if (assign_zones_to_data):
         centroids_idx = data_points.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
     else:
