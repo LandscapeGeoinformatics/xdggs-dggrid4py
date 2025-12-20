@@ -122,7 +122,10 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     # So, we have to concate all the blocks then reshape to form the final result (i.e. (num_blocks * result_block_size, number_of_vars+1) ).
     ds_dask_array = da.concatenate([ds_dask_array.blocks.ravel()], axis=1).reshape(-1, len(ds.data_vars) + 1)
     # select zone_id != no_data from the result
-    ds_dask_array = ds_dask_array[da.compute(da.where(ds_dask_array[:, -1] != zone_id_repr_list[zone_id_repr][1]))[0]]
+    if (zone_id_repr == 'int'):
+        ds_dask_array = ds_dask_array[da.isinf(ds_dask_array[:, -1].astype(np.uint64))]
+    else:
+        ds_dask_array = ds_dask_array[da.compute(da.where(ds_dask_array[:, -1] != zone_id_repr_list[zone_id_repr][1]))[0]]
     ds_dask_array = ds_dask_array.to_dask_dataframe(list(ds.data_vars.keys()) + ['zone_id'])
     if (zone_id_repr == 'int'):
         ds_dask_array['zone_id'] = ds_dask_array['zone_id'].astype(np.uint64)
