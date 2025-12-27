@@ -66,10 +66,11 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     points_coordinates = np.c_[x_coordinates.ravel(), y_coordinates.ravel()]
 
     # reshape the data , swap the data variables with x , e.g. (1, 200, 200) (c,y,x) -> (200, 200, 1) (x,y,c)
-    # since the points_coordinates is in (x,y), we also need to flatten the data in the corret format
-    data = da.swapaxes(data, 0, -1)
-    num_of_data_variables = data.shape[-1]
-    data = data.reshape(-1, num_of_data_variables)
+    # since the points_coordinates is in (x,y), we also need to use moveaxis and vstack to make sure the x,y order
+    # is the after change of dimension.
+    num_of_data_variables = data.shape[0]
+    data = da.moveaxis(data, 0, -1)
+    data = da.vstack(data)
     data_points = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in points_coordinates], crs=crs).to_crs('wgs84')
     clip_bound = shapely.box(*data_points.total_bounds)
     clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic)[0]
