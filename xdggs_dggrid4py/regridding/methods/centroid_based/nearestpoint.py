@@ -70,9 +70,9 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     # and vstack to make sure the x,y order
     # is the after change of dimension.
     num_of_data_variables = data.shape[0]
-    data = da.moveaxis(data, 0, -1) # (y, x, c) 
-    data = data.swapaxes(0, 1).compute() # (x, y, c)
-    data = da.vstack(data) # ([x y], c)
+    data = np.moveaxis(data, 0, -1) # (y, x, c) 
+    data = np.swapaxes(data, 0, 1) # (x, y, c)
+    data = np.vstack(data) # ([x y], c)
     data_points = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in points_coordinates], crs=crs).to_crs('wgs84')
     clip_bound = shapely.box(*data_points.total_bounds)
     clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic)[0]
