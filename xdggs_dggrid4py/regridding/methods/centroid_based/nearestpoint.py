@@ -62,17 +62,26 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     x_coordinates = np.arange(x_start, x_end, coordinate_step_size)
     y_coordinates = np.arange(y_start, y_end, -coordinate_step_size)
     x_coordinates, y_coordinates = np.meshgrid(x_coordinates, y_coordinates)
-    # coordinates in (x ,y) format
+    # coordinates in (x ,y) format. The order of the 1D array follows
+    # transposing row to column with fixed y, example:
+    #            x       ,   y
+    #   [ 564406.00767268, 5557346.30067022],
+    #   [ 564422.00767268, 5557346.30067022],
+    #   [ 564438.00767268, 5557346.30067022],
     points_coordinates = np.c_[x_coordinates.ravel(), y_coordinates.ravel()]
 
     # reshape the data , e.g. (1, 200, 200) (c,y,x) -> (200, 200, 1) (x,y,c)
     # since the points_coordinates is in (x,y), we also need to use moveaxis  (c, y, x) -> (y, x, c)
-    # and vstack to make sure the x,y order
-    # is the after change of dimension.
+    # and vstack to make sure the x,y ordering
+    # example: a=np.array([[[0,1],[2,3]],[[4,5],[6,7]],[[8,9],[10,11]]]) # (3,2,2)
+    #          np.vstack(np.moveaxis(a, 0, -1))
+    #          array([[ 0,  4,  8],  # (0,0) (x,y)
+    #                 [ 1,  5,  9],  # (1,0)
+    #                 [ 2,  6, 10],  # (0,1)
+    #                 [ 3,  7, 11]]) # (1,1)
     num_of_data_variables = data.shape[0]
-    data = np.moveaxis(data, 0, -1) # (y, x, c) 
-    data = np.swapaxes(data, 0, 1) # (x, y, c)
-    data = np.vstack(data) # ([x y], c)
+    data = np.moveaxis(data, 0, -1) # (y, x, c)
+    data = np.vstack(data)
     data_points = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in points_coordinates], crs=crs).to_crs('wgs84')
     clip_bound = shapely.box(*data_points.total_bounds)
     clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic)[0]
