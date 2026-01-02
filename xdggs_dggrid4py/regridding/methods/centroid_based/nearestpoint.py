@@ -12,6 +12,7 @@ import numpy as np
 import geopandas as gpd
 import tempfile
 import shapely
+from pys2index import S2PointIndex
 import os
 import warnings
 warnings.filterwarnings("ignore")
@@ -80,7 +81,7 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     #                 [ 2,  6, 10],  # (0,1)
     #                 [ 3,  7, 11]]) # (1,1)
     num_of_data_variables = data.shape[0]
-    data = np.moveaxis(data, 0, -1) # (y, x, c)
+    data = np.moveaxis(data, 0, -1)  # (y, x, c)
     data = np.vstack(data)
     data_points = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in points_coordinates], crs=crs).to_crs('wgs84')
     clip_bound = shapely.box(*data_points.total_bounds)
@@ -89,10 +90,16 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False)
     if (zone_id_repr == 'int'):
         hex_centroids_df['name'] = hex_centroids_df['name'].apply(int, base=16)
+    data_points = data_points.get_coordinates()
+    data_points = np.c_[data_points.y, data_points.x]
+    hex_centroids = hex_centroids_df.get_coordinates()
+    hex_centroids = np.c_[hex_centroids.y, hex_centroids.x]
     if (assign_zones_to_data):
-        centroids_idx = data_points.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
+        data_points = S2PointIndex(data_points)
+        centroids_idx = data_points.query(hex_centroids)[1]  # the len of the position array = hex_centroids
     else:
-        centroids_idx = hex_centroids_df.geometry.sindex.nearest(data_points.geometry, return_all=False, return_distance=False)[1]
+        hex_centroids = S2PointIndex(hex_centroids)
+        centroids_idx = hex_centroids.query(data_points)[1]  # the len of the position array = dat_points
     no_data = zone_id_repr_list[zone_id_repr][1]
     result_block = da.full((result_block_size, num_of_data_variables + 1), no_data, dtype=object, chunks=-1)
     if (assign_zones_to_data):

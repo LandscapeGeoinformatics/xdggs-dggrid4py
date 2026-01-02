@@ -8,3 +8,4 @@ dependencies:
   - dggrid
   - poetry
   - pip
+  - pys2index
