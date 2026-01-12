@@ -1,4 +1,4 @@
-from xdggs_dggrid4py.utils import register_igeo7regridding_method
+from xdggs_dggrid4py.utils import register_regridding_method
 from dggrid4py import DGGRIDv7
 import numpy as np
 import geopandas as gpd
@@ -11,7 +11,7 @@ except KeyError:
     raise Exception("DGGRID_PATH env var not found")
 
 
-@register_igeo7regridding_method
+@register_regridding_method
 def centerpoint(i, j, icoords, jcoords, index_dir, data_shape, igeo7info):
     temp_dir = tempfile.TemporaryDirectory()
     dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)

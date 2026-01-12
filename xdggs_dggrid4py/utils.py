@@ -1,86 +1,146 @@
-from dggrid4py import DGGRIDv7
+from dggrid4py import DGGRIDv8
+from pygeodesy.ellipsoids import Ellipsoids
 import geopandas as gpd
+from geopandas.geoseries import GeoSeries
 import shapely
 import tempfile
 import numpy as np
 import os
 
-try:
-    dggrid_path = os.environ['DGGRID_PATH']
-except KeyError:
-    raise Exception("DGGRID_PATH env var not found")
 
-igeo7regridding_method = {}
+regridding_method = {}
+
+wgs84 = Ellipsoids.WGS84
 
 
-def register_igeo7regridding_method(func):
-    igeo7regridding_method[func.__name__] = func
+igeo7_grid_zones_stats = {0: {"Cells": 12, "Area (km^2)": 51006562.1724089, "CLS (km)": 8199.5003701},
+                          1: {"Cells": 72, "Area (km^2)": 7286651.7389156, "CLS (km)": 3053.2232428},
+                          2: {"Cells": 492, "Area (km^2)": 1040950.2484165, "CLS (km)": 1151.6430095},
+                          3: {"Cells": 3432, "Area (km^2)": 148707.1783452, "CLS (km)": 435.1531492},
+                          4: {"Cells": 24012, "Area (km^2)": 21243.8826207, "CLS (km)": 164.4655799},
+                          5: {"Cells": 168072, "Area (km^2)": 3034.8403744, "CLS (km)": 62.1617764},
+                          6: {"Cells": 1176492, "Area (km^2)": 433.5486249, "CLS (km)": 23.4949231},
+                          7: {"Cells": 8235432, "Area (km^2)": 61.9355178, "CLS (km)": 8.8802451},
+                          8: {"Cells": 57648012, "Area (km^2)": 8.8479311, "CLS (km)": 3.3564171},
+                          9: {"Cells": 403536072, "Area (km^2)": 1.2639902, "CLS (km)": 1.2686064},
+                          10: {"Cells": 2824752492, "Area (km^2)": 0.18057, "CLS (km)": 0.4794882},
+                          11: {"Cells": 19773267432, "Area (km^2)": 0.0257957, "CLS (km)": 0.1812295},
+                          12: {"Cells": 138412872012, "Area (km^2)": 0.0036851, "CLS (km)": 0.0684983},
+                          13: {"Cells": 968890104072, "Area (km^2)": 0.0005264, "CLS (km)": 0.0258899},
+                          14: {"Cells": 6782230728492, "Area (km^2)": 0.0000752, "CLS (km)": 0.0097855},
+                          15: {"Cells": 47475615099432, "Area (km^2)": 0.0000107, "CLS (km)": 0.0036986},
+                          16: {"Cells": 332329305696012, "Area (km^2)": 0.0000015348198699, "CLS (km)": 0.0013979246590466},
+                          17: {"Cells": 2326305139872072, "Area (km^2)": 0.0000002192599814, "CLS (km)": 0.0005283658570631},
+                          18: {"Cells": 16284135979104492, "Area (km^2)": 0.0000000313228545, "CLS (km)": 0.0001997035227209},
+                          19: {"Cells": 113988951853731432, "Area (km^2)": 0.0000000044746935, "CLS (km)": 0.0000754808367233},
+                          20: {"Cells": 797922662976120012, "Area (km^2)": 0.0000000006392419, "CLS (km)": 0.0000285290746744},
+                           }
+
+
+def register_regridding_method(func):
+    regridding_method[func.__name__] = func
     print(f'Registered regridding method {func.__name__}')
     return func
 
 
-def _gen_centroid_from_cellids(batch, steps, cellids, grid_name, resolution, total_len, centroids_memmap):
-    centroids = np.memmap(centroids_memmap, mode='r+', shape=(total_len, 2), dtype='float32')
-    temp_dir = tempfile.TemporaryDirectory()
-    dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
-    centroids_df = dggrid.grid_cell_centroids_from_cellids(cellids, grid_name, resolution, input_address_type='Z7_STRING',
-                                                           output_address_type='Z7_STRING').set_index('name')
-    df = gpd.GeoDataFrame(cellids, columns=['cellids'])
-    df = df.set_index('cellids')
-    df = centroids_df.join(df, how='right')
-    centroids_xy = df.geometry.get_coordinates()
-    end = (batch * steps) + steps if (((batch * steps) + steps) < total_len) else total_len
-    centroids[(batch * steps): end, 0] = centroids_xy['x'].values
-    centroids[(batch * steps): end, 1] = centroids_xy['y'].values
-    centroids.flush()
+def v_authalic_to_geodetic(x):
+    return wgs84.auxAuthalic(x, inverse=True)
 
 
-def _gen_polygon_from_cellids(cellids, grid_name, resolution):
-    temp_dir = tempfile.TemporaryDirectory()
-    dggrid = DGGRIDv7(dggrid_path, working_dir=temp_dir.name, silent=True)
-    polygon_df = dggrid.grid_cell_polygons_from_cellids(cellids, grid_name, resolution, input_address_type='Z7_STRING',
-                                                        output_address_type='Z7_STRING').set_index('name')
-    df = gpd.GeoDataFrame(cellids, columns=['cellids'])
-    df = df.set_index('cellids')
-    df = polygon_df.join(df, how='right')
-    return df['geometry'].values
+def v_geodetic_to_authalic(x):
+    return wgs84.auxAuthalic(x, inverse=False)
 
-def _gen_parents_from_cellids(batch, steps, cellids, relative_level,total_len, cellids_memmap):
-    cellidsize = len(cellids[0]) + relative_level
-    parent_cellids = np.memmap(cellids_memmap, mode='r+', shape=(total_len,), dtype=f'|S{cellidsize}')
-    end = (batch * steps) + steps if (((batch * steps) + steps) < total_len) else total_len
-    parent_cellids[(batch * steps): end] = [c[: relative_level] for c in cellids]
-    parent_cellids.flush()
 
-def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, grid_name):
-    dggs = DGGRIDv7(dggrid_path, working_dir=tempfile.mkdtemp(), silent=True)
-    print('Calculate Auto resolution')
+def _create_polygon(list_of_point):
+    return shapely.Polygon(list_of_point)
+
+
+def _create_point(point):
+    return shapely.Point(point)
+
+
+v_authalic_to_geodetic = np.vectorize(v_authalic_to_geodetic)
+v_geodetic_to_authalic = np.vectorize(v_geodetic_to_authalic)
+
+
+# Alway returns a GeoSeries
+def _authalic_to_geodetic(geometry, convert: bool, polygon: bool = True) -> GeoSeries:
+    if (not isinstance(geometry, GeoSeries)):
+        geometry = GeoSeries(geometry)
+    if (not convert):
+        return geometry
+    if (polygon):
+        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[1]))
+        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[0]))
+    else:
+        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[1]))
+        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[0]))
+    lat_array = np.stack(lat_array.to_numpy())
+    lon_array = np.stack(lon_array.to_numpy())
+    lat_array = v_authalic_to_geodetic(lat_array)
+    geom = np.stack([lon_array, lat_array], axis=-1)
+    if (polygon):
+        # stack lon_array,lat_array at the last dim, then convert the last dim to a 2-tuple
+        # ex. 40000 polygons = [40000,7, 2] after stack, then change it to [40000,7]
+        geom = geom.view(dtype=np.dtype([('x', 'float'), ('y', 'float')]))
+        geom = geom.reshape(geom.shape[:-1])
+        geom = np.apply_along_axis(_create_polygon, -1, geom)
+    else:
+        # stack lon_array,lat_array at the last dim, squeeze the dim
+        # ex. 40000 polygons = [40000,1, 2] after stack, then squeeze it to [40000, 2]
+        geom = geom.squeeze(axis=1)
+        geom = np.apply_along_axis(_create_point, -1, geom)
+    return GeoSeries(geom)
+
+
+# Alway returns a GeoSeries
+def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True) -> GeoSeries:
+    if (not isinstance(geometry, GeoSeries)):
+        geometry = GeoSeries(geometry)
+    if (not convert):
+        return geometry
+    if (polygon):
+        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[1]))
+        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[0]))
+    else:
+        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[1]))
+        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[0]))
+    lat_array = np.stack(lat_array.to_numpy())
+    lon_array = np.stack(lon_array.to_numpy())
+    lat_array = v_geodetic_to_authalic(lat_array)
+    geom = np.stack([lon_array, lat_array], axis=-1)
+    if (polygon):
+        # stack lon_array,lat_array at the last dim, then convert the last dim to a 2-tuple
+        # ex. 40000 polygons = [40000,7, 2] after stack, then change it to [40000,7]
+        geom = geom.view(dtype=np.dtype([('x', 'float'), ('y', 'float')]))
+        geom = geom.reshape(geom.shape[:-1])
+        geom = np.apply_along_axis(_create_polygon, -1, geom)
+    else:
+        # stack lon_array,lat_array at the last dim, squeeze the dim
+        # ex. 40000 polygons = [40000,1, 2] after stack, then squeeze it to [40000, 2]
+        geom = geom.squeeze(axis=1)
+        geom = np.apply_along_axis(_create_point, -1, geom)
+    return GeoSeries(geom)
+
+
+def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
     df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
-    print(f'Total Bounds ({src_epsg}): {df.total_bounds}')
     df = df.to_crs('wgs84')
-    print(f'Total Bounds (wgs84): {df.total_bounds}')
     R = 6371
     lon1, lat1, lon2, lat2 = df.total_bounds
     lon1, lon2, lat1, lat2 = np.deg2rad(lon1), np.deg2rad(lon2), np.deg2rad(lat1), np.deg2rad(lat2)
     a = (np.sin((lon2 - lon1) / 2) ** 2 + np.cos(lon1) * np.cos(lon2) * np.sin(0) ** 2)
     d = 2 * np.arcsin(np.sqrt(a))
     area = abs(d * ((np.power(R, 2) * np.sin(lat2)) - (np.power(R, 2) * np.sin(lat1))))
-    print(f'Total Bounds Area (km^2): {area}')
+    print(f'{__name__} area of extent (km^2): {area}')
     avg_area_per_data = (area / num_data)
-    print(f'Area per center point (km^2): {avg_area_per_data}')
-    dggrid_resolution = dggs.grid_stats_table('ISEA7H', 30)
-    filter_ = dggrid_resolution[dggrid_resolution['Area (km^2)'] < avg_area_per_data]
-    est_numberofcells = int(np.ceil(area / dggrid_resolution.iloc[4,2]))
+    print(f'{__name__} average area per square grid (km^2): {avg_area_per_data}')
+    filter_ = [k for k, v in igeo7_grid_zones_stats.items() if (igeo7_grid_zones_stats[k]['Area (km^2)'] < avg_area_per_data)]
     resolution = 5
     if (len(filter_) > 0):
-        resolution = filter_.iloc[0, 0]
-        est_numberofcells = int(np.ceil(area / filter_.iloc[0,2]))
-        print(f'Auto resolution : {resolution}, area: {filter_.iloc[0,2]} km2')
+        resolution = filter_[0]
+    if (rf > -1):
+        est_numberofcells = int(np.ceil(area / igeo7_grid_zones_stats[rf]['Area (km^2)']))
     else:
-        print(f'Auto resolution failed, using {resolution}')
-
+        est_numberofcells = int(np.ceil(area / igeo7_grid_zones_stats[resolution]['Area (km^2)']))
     return resolution, est_numberofcells
-
-
-
-
