@@ -52,7 +52,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
 
 
 def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoint", coordinates=['x', 'y'], original_crs=None,
-                         refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1, assign_zones_to_data=True,
+                         refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1, assign_zones_to_data=True, sort_index=True,
                          wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20, **dggrid_kwargs) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
@@ -126,7 +126,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     ds_dask_array = ds_dask_array.to_dask_dataframe(list(ds.data_vars.keys()) + ['zone_id'])
     if (zone_id_repr == 'int'):
         ds_dask_array['zone_id'] = ds_dask_array['zone_id'].astype(np.uint64)
-    ds_dask_array = ds_dask_array.set_index('zone_id')
+    ds_dask_array = ds_dask_array.set_index('zone_id', sort=sort_index)
     for var_name, dtype in ds.data_vars.dtypes.items():
         ds_dask_array[var_name] = ds_dask_array[var_name].astype(dtype)
     converted_ds = xr.Dataset.from_dataframe(ds_dask_array)
