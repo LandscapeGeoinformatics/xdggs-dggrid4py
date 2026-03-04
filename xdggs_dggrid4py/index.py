@@ -29,13 +29,13 @@ class IGEO7Index(DGGSIndex):
                        *, options: Mapping[str, Any],) -> "IGEO7Index":
         _, var, dim = _extract_cell_id_variable(variables)
         attrs = var.attrs.copy()
-        attrs["grid_name"] = attrs["grid_name"].upper()
-        cls = GRID_REGISTRY.get(attrs["grid_name"].lower())
+        attrs["grid_name"] = attrs["grid_name"]
+        cls = GRID_REGISTRY.get(attrs["grid_name"])
         if cls is None:
             raise ValueError(f'unknown DGGS grid name: {var.attrs["grid_name"]}.')
-        if (attrs["grid_name"] != 'IGEO7'):
+        if (attrs["grid_name"] != 'igeo7'):
             raise ValueError(f'The grid_name({attrs["grid_name"]}) is wrong for the IGEO7Index.')
-        dggrid_meta_config = GridsConfig["IGEO7"]["meta_config"]
+        dggrid_meta_config = GridsConfig["igeo7"]["meta_config"]
         dggrid_meta_config.update({"dggs_vert0_lon": attrs.get("_dggs_vert0_lon", 11.20)})
         if (isinstance(var.values[0], str)):
             dggrid_meta_config.update({"input_hier_ndx_form": "DIGIT_STRING"})

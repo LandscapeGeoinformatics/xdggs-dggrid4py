@@ -21,7 +21,7 @@ except KeyError:
 
 zone_id_repr_list = {"int": ["INT64", np.inf], "hexstring": ["INT64", ''], "textural": ["DIGIT_STRING", '']}
 
-GridsConfig = {'IGEO7': {"refinement_level_range": range(0, 22),
+GridsConfig = {'igeo7': {"refinement_level_range": range(0, 22),
                          "meta_config": {"input_address_type":  'HIERNDX',
                                         "input_hier_ndx_system": 'Z7',
                                         "input_hier_ndx_form":  'INT64',  # defaults to int representation
@@ -32,7 +32,7 @@ GridsConfig = {'IGEO7': {"refinement_level_range": range(0, 22),
                                         "dggs_vert0_lon": 11.20
                                         }
                          },
-               'ISEA7H': {"refinement_level_range": range(0, 22),
+               'isea7h': {"refinement_level_range": range(0, 22),
                           "meta_config": {"input_address_type":  'HIERNDX',
                                          "input_hier_ndx_system": 'SEQNUM',
                                          "input_hier_ndx_form":  'INT64',  # defaults to int representation
@@ -54,13 +54,13 @@ class IGEO7Info(DGGSInfo):
     igeo7_dggs_vert0_lon: decimal.Decimal | float = 11.20
     _dggrid = DGGRIDv8(dggrid_path, tempfile.TemporaryDirectory().name, silent=True)
 
-    valid_parameters: ClassVar[dict[str, Any]] = {"level": GridsConfig["IGEO7"]["refinement_level_range"]}
+    valid_parameters: ClassVar[dict[str, Any]] = {"level": GridsConfig["igeo7"]["refinement_level_range"]}
 
     def __post_init__(self):
-        if (self.grid_name.upper() != 'IGEO7'):
+        if (self.grid_name.lower() != 'igeo7'):
             raise ValueError('Wrong grid_name for IGEO7Info.')
         if self.level not in self.valid_parameters["level"]:
-            raise ValueError(f'level must be an integer between {GridsConfig["IGEO7"]["refinement_level_range"]}.')
+            raise ValueError(f'level must be an integer between {GridsConfig["igeo7"]["refinement_level_range"]}.')
 
     @classmethod
     def from_dict(cls: type[Self], mapping: dict[str, Any]) -> Self:

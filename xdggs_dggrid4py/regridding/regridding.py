@@ -15,7 +15,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
                dggs_vert0_lon=11.20) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
-    if (grid_name.upper() not in list(GridsConfig.keys())):
+    if (grid_name.lower() not in list(GridsConfig.keys())):
         raise ValueError(f"{__name__} {grid_name} not found in GridsConfig.")
     if (regridding_method.get(method) is None):
         raise ValueError(f"{__name__} {method} not found in regridding_method.")
@@ -34,7 +34,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
         print(f'{__name__} auto refinement level : {refinement_level}')
     spatial_ref_attrs = ds.spatial_ref.attrs.copy()
     ds = ds.drop_vars('spatial_ref')
-    grid_name = grid_name.upper()
+    grid_name = grid_name.lower()
     dggrid_meta_config = GridsConfig[grid_name]['meta_config']
     dggrid_meta_config.update({"dggs_vert0_lon": dggs_vert0_lon})
     zone_id_repr = zone_id_repr.lower()
@@ -42,7 +42,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
                                'output_hier_ndx_form': zone_id_repr_list[zone_id_repr][0]})
     ds = ds.stack(zone_id=([coordinates[0], coordinates[1]]), create_index=False)
     converted_ds = regridding_method[method](ds, original_crs, coordinates, grid_name, refinement_level,
-                                             dggrid_meta_config, wgs84_geodetic_conversion)
+                                             dggrid_meta_config, zone_id_repr, wgs84_geodetic_conversion)
     converted_ds = converted_ds.assign_coords({'spatial_ref': 0})
     converted_ds.spatial_ref.attrs = spatial_ref_attrs
     converted_ds['zone_id'].attrs = {'grid_name': grid_name, 'level': refinement_level,
@@ -56,7 +56,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
                          wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20, **dggrid_kwargs) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
-    if (grid_name.upper() not in list(GridsConfig.keys())):
+    if (grid_name.lower() not in list(GridsConfig.keys())):
         raise ValueError(f"{__name__} {grid_name} not found in GridsConfig.")
     if (regridding_method.get(method) is None):
         raise ValueError(f"{__name__} {method} not found in regridding_method.")
@@ -75,7 +75,7 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
         refinement_level = auto_rf_level
     spatial_ref_attrs = ds.spatial_ref.attrs.copy()
     ds = ds.drop_vars('spatial_ref')
-    grid_name = grid_name.upper()
+    grid_name = grid_name.lower()
     dggrid_meta_config = GridsConfig[grid_name]['meta_config']
     dggrid_meta_config.update({"dggs_vert0_lon": dggs_vert0_lon})
     zone_id_repr = zone_id_repr.lower()
