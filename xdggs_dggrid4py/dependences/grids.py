@@ -1,6 +1,7 @@
 from xdggs.grid import DGGSInfo
 from typing import Any, ClassVar, Self
 from dataclasses import dataclass
+import geopandas as gpd
 import numpy as np
 import os
 import decimal
@@ -8,8 +9,10 @@ import tempfile
 import shapely
 
 from dggrid4py import DGGRIDv8
+from dggrid4py.igeo7 import z7int_to_z7hex
 from xdggs_dggrid4py.utils import _geodetic_to_authalic, _authalic_to_geodetic
 
+vz7int_to_z7hex = np.vectorize(z7int_to_z7hex)
 
 try:
     dggrid_path = os.environ['DGGRID_PATH']
@@ -52,7 +55,7 @@ class IGEO7Info(DGGSInfo):
     _dggrid_meta_config: dict
     igeo7_wgs84_geodetic_conversion: bool = True
     igeo7_dggs_vert0_lon: decimal.Decimal | float = 11.20
-    _dggrid = DGGRIDv8(dggrid_path, tempfile.TemporaryDirectory().name, silent=True)
+    _dggrid = DGGRIDv8(dggrid_path, tempfile.mkdtemp(), silent=True, debug=False)
 
     valid_parameters: ClassVar[dict[str, Any]] = {"level": GridsConfig["igeo7"]["refinement_level_range"]}
 
@@ -75,26 +78,29 @@ class IGEO7Info(DGGSInfo):
     def cell_ids2geographic(
         self, cell_ids: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids, self.grid_name, self.level,
+        cell_ids = vz7int_to_z7hex(cell_ids)
+        centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids, self.grid_name.upper(), self.level,
                                                                      **self._dggrid_meta_config)
-        centroids_df.geometry = _authalic_to_geodetic(centroids_df.geometry, self._wgs84_geodetic_conversion)
+        centroids_df.geometry = _authalic_to_geodetic(centroids_df.geometry, True, polygon=False)
         centroids = centroids_df.get_coordinates()
         return (centroids['x'].values, centroids['y'].values)
 
     def geographic2cell_ids(self, lon, lat):
         assert len(lon) == len(lat), f"{__name__} the length of lon and lat are not equal"
-        centroids = GeoSeries([shapely.Point(c[0], c[1]) for c in zip(lon, lat)])
-        centroids = _geodetic_to_authalic(centroids, self._wgs84_geodetic_conversion)
-        centroids = self._dggrid.cells_for_geo_points(centroids, True, self.grid_name, self.level, **self._dggrid_meta_config)
-        return centroids['name'].values
+        geo_points = gpd.GeoSeries([shapely.Point(c[0], c[1]) for c in zip(lon, lat)])
+        geo_points = _geodetic_to_authalic(geo_points, True, polygon=False)
+        geo_points = gpd.GeoDataFrame({'data': [0] * len(geo_points)}, geometry=geo_points, crs='wgs84')
+        geo_points = self._dggrid.cells_for_geo_points(geo_points, True, self.grid_name.upper(), self.level, **self._dggrid_meta_config)
+        return geo_points['name'].apply(int, base=16).values
 
     def cell_boundaries(self, cell_ids, backend="shapely"):
-        if (backend != "shapely"):
-            raise NotImplementedError("Only shapely is implemeneted")
-        hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids, self.grid_name,
+        # if (backend != "shapely"):
+        #    raise NotImplementedError("Only shapely is implemeneted")
+        cell_ids = vz7int_to_z7hex(cell_ids)
+        hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids, self.grid_name.upper(),
                                                                   self.level,
                                                                   **self._dggrid_meta_config)
-        geometry = _authalic_to_geodetic(hexagon_df.geometry, self._wgs84_geodetic_conversion)
+        geometry = _authalic_to_geodetic(hexagon_df.geometry, True, polygon=True)
         return geometry.values
 
     def zoom_to(self, cell_ids, level: int):
