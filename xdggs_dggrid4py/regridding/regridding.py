@@ -11,7 +11,7 @@ from dask.diagnostics import ProgressBar
 
 
 def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x', 'y'], original_crs=None,
-               refinement_level=-1, zone_id_repr="textural", wgs84_geodetic_conversion=True,
+               refinement_level=-1, zone_id_repr="int", wgs84_geodetic_conversion=True,
                dggs_vert0_lon=11.20) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
@@ -29,9 +29,13 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
     minx, miny = ds[coordinates[0]].min().values, ds[coordinates[1]].min().values
     maxx, maxy = ds[coordinates[0]].max().values, ds[coordinates[1]].max().values
     total_rows = len(ds[coordinates[0]]) * len(ds[coordinates[1]])
-    if (refinement_level == -1):
-        refinement_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
-        print(f'{__name__} auto refinement level : {refinement_level}')
+    assign_zones_to_data = True
+    auto_rf_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
+    if (refinement_level != -1):
+        if (auto_rf_level > refinement_level):
+            assign_zones_to_data = False
+    else:
+        refinement_level = auto_rf_level
     spatial_ref_attrs = ds.spatial_ref.attrs.copy()
     ds = ds.drop_vars('spatial_ref')
     grid_name = grid_name.lower()
@@ -41,7 +45,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
     dggrid_meta_config.update({'input_hier_ndx_form': zone_id_repr_list[zone_id_repr][0],
                                'output_hier_ndx_form': zone_id_repr_list[zone_id_repr][0]})
     ds = ds.stack(zone_id=([coordinates[0], coordinates[1]]), create_index=False)
-    converted_ds = regridding_method[method](ds, original_crs, coordinates, grid_name, refinement_level,
+    converted_ds = regridding_method[method](ds, original_crs, coordinates, grid_name, refinement_level, assign_zones_to_data,
                                              dggrid_meta_config, zone_id_repr, wgs84_geodetic_conversion)
     converted_ds = converted_ds.assign_coords({'spatial_ref': 0})
     converted_ds.spatial_ref.attrs = spatial_ref_attrs
@@ -52,7 +56,7 @@ def regridding(ds: xr.Dataset, grid_name, method="nearestpoint", coordinates=['x
 
 
 def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoint", coordinates=['x', 'y'], original_crs=None,
-                         refinement_level=-1, zone_id_repr="textural", estimate_number_of_zones=-1, assign_zones_to_data=True, sort_index=True,
+                         refinement_level=-1, zone_id_repr="int", sort_index=True,
                          wgs84_geodetic_conversion=True, dggs_vert0_lon=11.20, **dggrid_kwargs) -> xr.Dataset:
     if (zone_id_repr.lower() not in list(zone_id_repr_list.keys())):
         raise ValueError(f"{__name__} {zone_id_repr} is not supported.")
@@ -70,8 +74,12 @@ def mapblocks_regridding(ds: xr.Dataset, grid_name, method="mapblocks_nearestpoi
     minx, miny = ds[coordinates[0]].min().values, ds[coordinates[1]].min().values
     maxx, maxy = ds[coordinates[0]].max().values, ds[coordinates[1]].max().values
     total_rows = len(ds[coordinates[0]]) * len(ds[coordinates[1]])
-    if (refinement_level == -1 and estimate_number_of_zones == -1):
-        auto_rf_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
+    assign_zones_to_data = True
+    auto_rf_level, estimate_number_of_zones = autoResolution(minx, miny, maxx, maxy, original_crs, total_rows, refinement_level)
+    if (refinement_level != -1):
+        if (auto_rf_level > refinement_level):
+            assign_zones_to_data = False
+    else:
         refinement_level = auto_rf_level
     spatial_ref_attrs = ds.spatial_ref.attrs.copy()
     ds = ds.drop_vars('spatial_ref')

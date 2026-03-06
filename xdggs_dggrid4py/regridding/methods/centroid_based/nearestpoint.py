@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 
 @register_regridding_method
 def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
-                 refinement_level, dggrid_meta_config, zone_id_repr="textural", wgs84_to_authalic=True):
+                 refinement_level, assign_zones_to_data, dggrid_meta_config, zone_id_repr="int", wgs84_to_authalic=True):
     try:
         dggrid_path = os.environ['DGGRID_PATH']
     except KeyError:
@@ -37,12 +37,21 @@ def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
     hex_centroids_df = dggrid.grid_cell_centroids_for_extent(grid_name.upper(), refinement_level,
                                                              clip_geom=clip_bound, **dggrid_meta_config).set_crs('wgs84')
     hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False)
+    data_centroids = data_centroids.get_coordinates()
+    data_centroids = np.c_[data_centroids.y, data_centroids.x]
+    hex_centroids = hex_centroids_df.get_coordinates()
+    hex_centroids = np.c_[hex_centroids.y, hex_centroids.x]
     if (zone_id_repr == 'int'):
         hex_centroids_df['name'] = hex_centroids_df['name'].apply(int, base=16)
-    nearest_to_hex_centroids_idx = data_centroids.geometry.sindex.nearest(hex_centroids_df.geometry, return_all=False, return_distance=False)[1]
-    data = data.isel({'zone_id': nearest_to_hex_centroids_idx})
-    # force not to create index
-    data = data.assign_coords(xr.Coordinates({'zone_id': hex_centroids_df['name'].values}, indexes={}))
+    if (assign_zones_to_data):
+        data_centroids = S2PointIndex(data_centroids)
+        centroids_idx = data_centroids.query(hex_centroids)[1]  # the len of the position array = hex_centroids
+        data = data.isel({'zone_id': centroids_idx})
+        data = data.assign_coords(xr.Coordinates({'zone_id': hex_centroids_df['name'].values}))
+    else:
+        hex_centroids = S2PointIndex(hex_centroids)
+        centroids_idx = hex_centroids.query(data_centroids)[1]  # the len of the position array = dat_points
+        data = data.assign_coords(xr.Coordinates({'zone_id': hex_centroids_df.iloc[centroids_idx]['name'].values}))
     data = data.drop_vars(coordinates)
     return data
 
@@ -50,7 +59,7 @@ def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
 @register_regridding_method
 def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_step_size, result_block_size, working_dir,
                            grid_name, refinement_level, crs, assign_zones_to_data, dggrid_meta_config, wgs84_to_authalic=True,
-                           zone_id_repr="textural", block_info=None):
+                           zone_id_repr="int", block_info=None):
     # more on block_info :https://docs.dask.org/en/stable/generated/dask.array.map_blocks.html
     try:
         dggrid_path = os.environ['DGGRID_PATH']
@@ -89,10 +98,10 @@ def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_s
     data = np.vstack(data)
     data_points = gpd.GeoSeries([shapely.Point(point[0], point[1]) for point in points_coordinates], crs=crs).to_crs('wgs84')
     clip_bound = shapely.box(*data_points.total_bounds)
-    clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic)[0]
+    clip_bound = _geodetic_to_authalic(clip_bound, wgs84_to_authalic, polygon=True, multiprocess=False)[0]
     hex_centroids_df = dggrid.grid_cell_centroids_for_extent(grid_name.upper(), refinement_level,
                                                              clip_geom=clip_bound, **dggrid_meta_config).set_crs('wgs84')
-    hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False)
+    hex_centroids_df['geometry'] = _authalic_to_geodetic(hex_centroids_df['geometry'], wgs84_to_authalic, False, multiprocess=False)
     if (zone_id_repr == 'int'):
         hex_centroids_df['name'] = hex_centroids_df['name'].apply(int, base=16)
     data_points = data_points.get_coordinates()

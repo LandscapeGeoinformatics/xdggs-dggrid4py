@@ -5,6 +5,7 @@ from geopandas.geoseries import GeoSeries
 import shapely
 import tempfile
 import numpy as np
+import dask.array as da
 import os
 
 
@@ -43,11 +44,11 @@ def register_regridding_method(func):
     return func
 
 
-def v_authalic_to_geodetic(x):
+def _ellipsoids_authalic_to_geodetic(x):
     return wgs84.auxAuthalic(x, inverse=True)
 
 
-def v_geodetic_to_authalic(x):
+def _ellipsoids_geodetic_to_authalic(x):
     return wgs84.auxAuthalic(x, inverse=False)
 
 
@@ -59,69 +60,74 @@ def _create_point(point):
     return shapely.Point(point)
 
 
-v_authalic_to_geodetic = np.vectorize(v_authalic_to_geodetic)
-v_geodetic_to_authalic = np.vectorize(v_geodetic_to_authalic)
-
-
 # Alway returns a GeoSeries
-def _authalic_to_geodetic(geometry, convert: bool, polygon: bool = True) -> GeoSeries:
+def _authalic_to_geodetic(geometry, convert: bool, polygon: bool = True, multiprocess=True) -> GeoSeries:
     if (not isinstance(geometry, GeoSeries)):
         geometry = GeoSeries(geometry)
     if (not convert):
         return geometry
     if (polygon):
-        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[1]))
-        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[0]))
+        lonlat_array = geometry.geometry.apply(lambda geom: np.array([[lon, lat] for lon, lat in zip(geom.exterior.coords.xy[0],
+                                                                                                     geom.exterior.coords.xy[1])]))
     else:
-        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[1]))
-        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[0]))
-    lat_array = np.stack(lat_array.to_numpy())
-    lon_array = np.stack(lon_array.to_numpy())
-    lat_array = v_authalic_to_geodetic(lat_array)
-    geom = np.stack([lon_array, lat_array], axis=-1)
+        lonlat_array = geometry.geometry.apply(lambda geom: np.array([[lon, lat] for lon, lat in zip(geom.coords.xy[0],
+                                                                                                     geom.coords.xy[1])]))
+    lonlat_array = np.stack(lonlat_array.to_numpy())
+    num_of_rows = lonlat_array.shape[0]
+    lat_array = da.from_array(lonlat_array[:, :, 1]).reshape(-1)
+    if (num_of_rows > 50000 and multiprocess is True):
+        lat_array = lat_array.rechunk(chunks=(lat_array.shape[0] // 10))
+        lat_array = da.apply_gufunc(_ellipsoids_authalic_to_geodetic, "()->()", lat_array, vectorize=True).compute(scheduler='processes')
+    else:
+        lat_array = da.apply_gufunc(_ellipsoids_authalic_to_geodetic, "()->()", lat_array, vectorize=True).compute()
+    lonlat_array[:, :, 1] = lat_array.reshape(num_of_rows, -1)
     if (polygon):
         # stack lon_array,lat_array at the last dim, then convert the last dim to a 2-tuple
         # ex. 40000 polygons = [40000,7, 2] after stack, then change it to [40000,7]
-        geom = geom.view(dtype=np.dtype([('x', 'float'), ('y', 'float')]))
-        geom = geom.reshape(geom.shape[:-1])
-        geom = np.apply_along_axis(_create_polygon, -1, geom)
+        lonlat_array = lonlat_array.view(dtype=np.dtype([('x', 'float'), ('y', 'float')]))
+        lonlat_array = lonlat_array.reshape(lonlat_array.shape[:-1])
+        geom = np.apply_along_axis(_create_polygon, -1, lonlat_array)
     else:
         # stack lon_array,lat_array at the last dim, squeeze the dim
         # ex. 40000 polygons = [40000,1, 2] after stack, then squeeze it to [40000, 2]
-        geom = geom.squeeze(axis=1)
+        geom = lonlat_array.squeeze(axis=1)
         geom = np.apply_along_axis(_create_point, -1, geom)
     return GeoSeries(geom)
 
 
 # Alway returns a GeoSeries
-def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True) -> GeoSeries:
+def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True, multiprocess=True) -> GeoSeries:
     if (not isinstance(geometry, GeoSeries)):
         geometry = GeoSeries(geometry)
     if (not convert):
         return geometry
     if (polygon):
-        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[1]))
-        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.exterior.coords.xy[0]))
+        lonlat_array = geometry.geometry.apply(lambda geom: np.array([[lon, lat] for lon, lat in zip(geom.exterior.coords.xy[0],
+                                                                                                     geom.exterior.coords.xy[1])]))
     else:
-        lat_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[1]))
-        lon_array = geometry.geometry.apply(lambda geom: np.array(geom.coords.xy[0]))
-    lat_array = np.stack(lat_array.to_numpy())
-    lon_array = np.stack(lon_array.to_numpy())
-    lat_array = v_geodetic_to_authalic(lat_array)
-    geom = np.stack([lon_array, lat_array], axis=-1)
+        lonlat_array = geometry.geometry.apply(lambda geom: np.array([[lon, lat] for lon, lat in zip(geom.coords.xy[0],
+                                                                                                     geom.coords.xy[1])]))
+    lonlat_array = np.stack(lonlat_array.to_numpy())
+    num_of_rows = lonlat_array.shape[0]
+    lat_array = da.from_array(lonlat_array[:, :, 1]).reshape(-1)
+    if (num_of_rows > 50000 and multiprocess is True):
+        lat_array = lat_array.rechunk(chunks=(lat_array.shape[0] // 10))
+        lat_array = da.apply_gufunc(_ellipsoids_geodetic_to_authalic, "()->()", lat_array, vectorize=True).compute(scheduler='processes')
+    else:
+        lat_array = da.apply_gufunc(_ellipsoids_geodetic_to_authalic, "()->()", lat_array, vectorize=True).compute()
+    lonlat_array[:, :, 1] = lat_array.reshape(num_of_rows, -1)
     if (polygon):
         # stack lon_array,lat_array at the last dim, then convert the last dim to a 2-tuple
         # ex. 40000 polygons = [40000,7, 2] after stack, then change it to [40000,7]
-        geom = geom.view(dtype=np.dtype([('x', 'float'), ('y', 'float')]))
-        geom = geom.reshape(geom.shape[:-1])
-        geom = np.apply_along_axis(_create_polygon, -1, geom)
+        lonlat_array = lonlat_array.view(dtype=np.dtype([('x', 'float'), ('y', 'float')]))
+        lonlat_array = lonlat_array.reshape(lonlat_array.shape[:-1])
+        geom = np.apply_along_axis(_create_polygon, -1, lonlat_array)
     else:
         # stack lon_array,lat_array at the last dim, squeeze the dim
         # ex. 40000 polygons = [40000,1, 2] after stack, then squeeze it to [40000, 2]
-        geom = geom.squeeze(axis=1)
+        geom = lonlat_array.squeeze(axis=1)
         geom = np.apply_along_axis(_create_point, -1, geom)
     return GeoSeries(geom)
-
 
 def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
     df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)

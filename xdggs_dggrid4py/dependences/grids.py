@@ -78,29 +78,36 @@ class IGEO7Info(DGGSInfo):
     def cell_ids2geographic(
         self, cell_ids: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        cell_ids = vz7int_to_z7hex(cell_ids)
-        centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids, self.grid_name.upper(), self.level,
+        cell_ids_hex = vz7int_to_z7hex(cell_ids)
+        centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids_hex, self.grid_name.upper(), self.level,
                                                                      **self._dggrid_meta_config)
-        centroids_df.geometry = _authalic_to_geodetic(centroids_df.geometry, True, polygon=False)
+
+        centroids_df['name'] = centroids_df['name'].apply(int, base=16)
+        centroids_df.set_index('name', inplace=True)
+        centroids_df = centroids_df.loc[cell_ids]
+        centroids_df.geometry = _authalic_to_geodetic(centroids_df.geometry, self.igeo7_wgs84_geodetic_conversion, polygon=False)
         centroids = centroids_df.get_coordinates()
         return (centroids['x'].values, centroids['y'].values)
 
     def geographic2cell_ids(self, lon, lat):
         assert len(lon) == len(lat), f"{__name__} the length of lon and lat are not equal"
         geo_points = gpd.GeoSeries([shapely.Point(c[0], c[1]) for c in zip(lon, lat)])
-        geo_points = _geodetic_to_authalic(geo_points, True, polygon=False)
+        geo_points = _geodetic_to_authalic(geo_points, self.igeo7_wgs84_geodetic_conversion, polygon=False)
         geo_points = gpd.GeoDataFrame({'data': [0] * len(geo_points)}, geometry=geo_points, crs='wgs84')
         geo_points = self._dggrid.cells_for_geo_points(geo_points, True, self.grid_name.upper(), self.level, **self._dggrid_meta_config)
         return geo_points['name'].apply(int, base=16).values
 
     def cell_boundaries(self, cell_ids, backend="shapely"):
-        # if (backend != "shapely"):
-        #    raise NotImplementedError("Only shapely is implemeneted")
-        cell_ids = vz7int_to_z7hex(cell_ids)
-        hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids, self.grid_name.upper(),
+        cell_ids_hex = vz7int_to_z7hex(cell_ids)
+        hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids_hex, self.grid_name.upper(),
                                                                   self.level,
                                                                   **self._dggrid_meta_config)
-        geometry = _authalic_to_geodetic(hexagon_df.geometry, True, polygon=True)
+        hexagon_df['name'] = hexagon_df['name'].apply(int, base=16)
+        hexagon_df.set_index('name', inplace=True)
+        hexagon_df = hexagon_df.loc[cell_ids]
+        geometry = _authalic_to_geodetic(hexagon_df.geometry, self.igeo7_wgs84_geodetic_conversion, polygon=True)
+        if (backend == "geoarrow"):
+            return geometry.to_arrow()
         return geometry.values
 
     def zoom_to(self, cell_ids, level: int):

@@ -53,3 +53,6 @@ class IGEO7Index(DGGSIndex):
 
     def _replace(self, new_index: PandasIndex):
         return type(self)(new_index, self._dim, self._grid)
+
+    def to_pandas_index(self):
+        return self._index
