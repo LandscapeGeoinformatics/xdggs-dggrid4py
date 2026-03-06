@@ -17,7 +17,7 @@ A plugin of `xdggs <https://github.com/xarray-contrib/xdggs>`_ for `IGEO7 <https
    :maxdepth: 2
    :hidden:
    
-   tutorials/igeo7
+   tutorials/demo_xdggs-dggrid4py
 
 .. toctree::
    :caption: Reference Guide
