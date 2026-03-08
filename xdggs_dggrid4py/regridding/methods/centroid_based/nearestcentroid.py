@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 
 @register_regridding_method
-def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
+def nearestcentroid(data: xr.Dataset, original_crs, coordinates, grid_name,
                  refinement_level, assign_zones_to_data, dggrid_meta_config, zone_id_repr="int", wgs84_to_authalic=True):
     try:
         dggrid_path = os.environ['DGGRID_PATH']
@@ -57,7 +57,7 @@ def nearestpoint(data: xr.Dataset, original_crs, coordinates, grid_name,
 
 
 @register_regridding_method
-def mapblocks_nearestpoint(data: da, starting_coordinate: np.array, coordinate_step_size, result_block_size, working_dir,
+def mapblocks_nearestcentroid(data: da, starting_coordinate: np.array, coordinate_step_size, result_block_size, working_dir,
                            grid_name, refinement_level, crs, assign_zones_to_data, dggrid_meta_config, wgs84_to_authalic=True,
                            zone_id_repr="int", block_info=None):
     # more on block_info :https://docs.dask.org/en/stable/generated/dask.array.map_blocks.html

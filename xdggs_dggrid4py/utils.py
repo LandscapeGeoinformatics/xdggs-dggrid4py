@@ -1,7 +1,7 @@
 from dggrid4py import DGGRIDv8
-from pygeodesy.ellipsoids import Ellipsoids
 import geopandas as gpd
 from geopandas.geoseries import GeoSeries
+from pygeodesy.ellipsoids import Ellipsoids
 import shapely
 import tempfile
 import numpy as np
@@ -10,8 +10,6 @@ import os
 
 
 regridding_method = {}
-
-wgs84 = Ellipsoids.WGS84
 
 
 igeo7_grid_zones_stats = {0: {"Cells": 12, "Area (km^2)": 51006562.1724089, "CLS (km)": 8199.5003701},
@@ -45,11 +43,11 @@ def register_regridding_method(func):
 
 
 def _ellipsoids_authalic_to_geodetic(x):
-    return wgs84.auxAuthalic(x, inverse=True)
+    return Ellipsoids.WGS84.auxAuthalic(x, inverse=True)
 
 
 def _ellipsoids_geodetic_to_authalic(x):
-    return wgs84.auxAuthalic(x, inverse=False)
+    return Ellipsoids.WGS84.auxAuthalic(x, inverse=False)
 
 
 def _create_polygon(list_of_point):
@@ -74,10 +72,10 @@ def _authalic_to_geodetic(geometry, convert: bool, polygon: bool = True, multipr
                                                                                                      geom.coords.xy[1])]))
     lonlat_array = np.stack(lonlat_array.to_numpy())
     num_of_rows = lonlat_array.shape[0]
-    lat_array = da.from_array(lonlat_array[:, :, 1]).reshape(-1)
-    if (num_of_rows > 50000 and multiprocess is True):
-        lat_array = lat_array.rechunk(chunks=(lat_array.shape[0] // 10))
-        lat_array = da.apply_gufunc(_ellipsoids_authalic_to_geodetic, "()->()", lat_array, vectorize=True).compute(scheduler='processes')
+    lat_array = lonlat_array[:, :, 1].reshape(-1)
+    if (num_of_rows > 100000 and multiprocess is True):
+        lat_array = da.from_array(lat_array, chunks=100000)
+        lat_array = da.apply_gufunc(_ellipsoids_authalic_to_geodetic, "()->()", lat_array, vectorize=True).compute(scheduler="processes")
     else:
         lat_array = da.apply_gufunc(_ellipsoids_authalic_to_geodetic, "()->()", lat_array, vectorize=True).compute()
     lonlat_array[:, :, 1] = lat_array.reshape(num_of_rows, -1)
@@ -109,9 +107,9 @@ def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True, multipr
                                                                                                      geom.coords.xy[1])]))
     lonlat_array = np.stack(lonlat_array.to_numpy())
     num_of_rows = lonlat_array.shape[0]
-    lat_array = da.from_array(lonlat_array[:, :, 1]).reshape(-1)
-    if (num_of_rows > 50000 and multiprocess is True):
-        lat_array = lat_array.rechunk(chunks=(lat_array.shape[0] // 10))
+    lat_array = lonlat_array[:, :, 1].reshape(-1)
+    if (num_of_rows > 100000 and multiprocess is True):
+        lat_array = da.from_array(lat_array, chunks=100000)
         lat_array = da.apply_gufunc(_ellipsoids_geodetic_to_authalic, "()->()", lat_array, vectorize=True).compute(scheduler='processes')
     else:
         lat_array = da.apply_gufunc(_ellipsoids_geodetic_to_authalic, "()->()", lat_array, vectorize=True).compute()
