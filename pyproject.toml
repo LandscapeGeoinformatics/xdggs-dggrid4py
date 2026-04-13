@@ -17,7 +17,7 @@ zarr = "2.18.3"
 numcodecs = "^0.15.0"
 xdggs = ">=0.5.0,<0.6.0"
 distributed = "^2025.11.0"
-pyarrow = "^22.0.0"
+pyarrow = ">=23.0.1,<24.0.0"
 
 
 [build-system]
