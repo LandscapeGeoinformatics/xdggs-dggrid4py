@@ -15,7 +15,7 @@ shapely = "^2.0.7"
 dask = "^2025.2.0"
 zarr = "2.18.3"
 numcodecs = "^0.15.0"
-xdggs = "^0.4.0"
+xdggs = ">=0.5.0,<0.6.0"
 distributed = "^2025.11.0"
 pyarrow = "^22.0.0"
 
