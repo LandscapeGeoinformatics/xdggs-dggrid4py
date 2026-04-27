@@ -10,6 +10,7 @@ import os
 
 
 regridding_method = {}
+zone_ids_indexing_registry = {}
 
 
 igeo7_grid_zones_stats = {0: {"Cells": 12, "Area (km^2)": 51006562.1724089, "CLS (km)": 8199.5003701},
@@ -41,6 +42,12 @@ def register_regridding_method(func):
     print(f'Registered regridding method {func.__name__}')
     return func
 
+def register_zoneId_indexing(name):
+    def inner(cls):
+        zone_ids_indexing_registry[name] = cls
+        return cls
+    print(f'Registered zoneID indexing class: {name}')
+    return inner
 
 def _ellipsoids_authalic_to_geodetic(x):
     return Ellipsoids.WGS84.auxAuthalic(x, inverse=True)
@@ -127,6 +134,7 @@ def _geodetic_to_authalic(geometry, convert: bool, polygon: bool = True, multipr
         geom = np.apply_along_axis(_create_point, -1, geom)
     return GeoSeries(geom)
 
+
 def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
     df = gpd.GeoDataFrame([0], geometry=[shapely.geometry.box(minlng, minlat, maxlng, maxlat)], crs=src_epsg)
     df = df.to_crs('wgs84')
@@ -148,3 +156,42 @@ def autoResolution(minlng, minlat, maxlng, maxlat, src_epsg, num_data, rf=-1):
     else:
         est_numberofcells = int(np.ceil(area / igeo7_grid_zones_stats[resolution]['Area (km^2)']))
     return resolution, est_numberofcells
+
+
+def z7int_to_z7base7(zone_ids: np.ndarray, refinement_level=int):
+    # accept an array of zone ids in z7 int representation
+    # convert int64 to binary representation as bit array in uint8
+    bin_repr = np.unpackbits(zone_ids.astype(dtype='>i8').view(np.uint8).reshape(-1, 8), axis=-1)[:, : refinement_level * 3 + 4]
+    # then converts to z7 digit, reshape to [num_of_rows, refinement_level, 3] (3 bits for each z7 digit)
+    # multiply each 3bits with 2^2, 2^1, 2^0 and take sum to get the digit
+    digits = np.sum(bin_repr[:, 4:].reshape(-1, refinement_level, 3) * [4, 2, 1], axis=-1, dtype=np.uint8)
+    # multiply each 4bits with 2^3, 2^2, 2^1, 2^0 and take sum to get the face id
+    faceid = np.sum(bin_repr[:, :4].reshape(-1, 4) * [8, 4, 2, 1], axis=-1, dtype=np.uint8)
+    # since the face id is a int, divide it by 10 to get the digit
+    faceid = np.array([faceid // 10, faceid // 1], dtype=np.uint8).T
+    z7 = np.hstack([faceid, digits], dtype=np.uint8)
+    # change to base7
+    base7 = np.array([7**i for i in range(z7.shape[-1] - 1, -1, -1)])
+    base7 = np.sum(z7 * base7, axis=-1)
+    return base7
+
+
+def z7base7_to_z7int(z7base7: np.ndarray, refinement_level: int):
+    power = refinement_level + 2 - 1
+    num_rows = z7base7.shape[0]
+    digits = np.full((num_rows, refinement_level + 2), 255, dtype=np.uint8)
+    i = 0
+    # convert z7int in base7 to z7 digits
+    while z7base7[0] > 0:
+        digit = z7base7 // 7**power
+        z7base7 = z7base7 - (digit * 7**power)
+        power -= 1
+        digits[:, i] = digit
+        i += 1
+    faceids = np.unpackbits(np.sum(digits[:, :2], axis=-1, dtype=np.uint8)).reshape(num_rows, -1)[:, -4:]
+    digits = np.unpackbits(digits[:, 2:], axis=-1).reshape(-1, refinement_level, 8)[:, :, -3:].reshape(num_rows, -1)
+    digits = np.hstack([faceids, digits])
+    digits = np.hstack([digits, np.ones((num_rows, 64 - digits.shape[-1]), dtype=np.uint8)])
+    # then z7 digits to z7int
+    digits = np.sum(digits * [2**i for i in range(63, -1, -1)], axis=-1, dtype=np.uint64)
+    return digits
