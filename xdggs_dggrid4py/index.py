@@ -19,29 +19,28 @@ class IGEO7Index(DGGSIndex):
         cell_ids: Any | PandasIndex,
         dim: str,
         grid_info: DGGSInfo,
-        zoneId_indexing: str = "pandas"
+        zoneid_indexing: str = "pandas"
     ):
         if not isinstance(grid_info, DGGSInfo):
             raise ValueError(f"grid info object has an invalid type: {type(grid_info)}")
-        if zoneId_indexing not in list(zone_ids_indexing_registry.keys()) + ["pandas"]:
-            raise ValueError(f"zone ID indexing class not found: {zoneId_indexing}")
+        if zoneid_indexing not in list(zone_ids_indexing_registry.keys()) + ["pandas"]:
+            raise ValueError(f"zone ID indexing class not found: {zoneid_indexing}")
 
-        if (zoneId_indexing == "pandas"):
+        if (zoneid_indexing == "pandas"):
             super().__init__(cell_ids, dim, grid_info)
         else:
-            indexing_class = zone_ids_indexing_registry[zoneId_indexing]
+            indexing_class = zone_ids_indexing_registry[zoneid_indexing]
             self._dim = dim
             self._grid = grid_info
             self._index = indexing_class.from_array(cell_ids, dim=dim, name=dim, grid_info=grid_info)
-        self._zoneid_indexing = zoneId_indexing
+        self._zoneid_indexing = zoneid_indexing
 
     @classmethod
     def from_variables(cls: type["IGEO7Index"], variables: Mapping[Any, xr.Variable],
                        *, options: Mapping[str, Any],) -> "IGEO7Index":
         _, var, dim = _extract_cell_id_variable(variables)
         attrs = var.attrs.copy()
-        zoneId_indexing = attrs.get('zoneId_indexing', 'pandas')
-        attrs.pop("zoneId_indexing", None)
+        zoneid_indexing = attrs.pop('zoneid_indexing', 'pandas')
         attrs["grid_name"] = attrs["grid_name"]
         cls = GRID_REGISTRY.get(attrs["grid_name"])
         if cls is None:
@@ -55,7 +54,7 @@ class IGEO7Index(DGGSIndex):
             dggrid_meta_config.update({"output_hier_ndx_form": "DIGIT_STRING"})
         attrs.update({"_dggrid_meta_config": dggrid_meta_config})
         igeo7info = IGEO7Info.from_dict(attrs)
-        return cls(var.data, dim, igeo7info, zoneId_indexing)
+        return cls(var.data, dim, igeo7info, zoneid_indexing)
 
     @property
     def grid_info(self) -> IGEO7Info:

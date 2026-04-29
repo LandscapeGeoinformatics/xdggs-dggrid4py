@@ -6,8 +6,10 @@ import pandas as pd
 
 from xarray.core.indexes import IndexSelResult, PandasIndex
 from typing import Any
+from xdggs.utils import _extract_cell_id_variable
 from xdggs_dggrid4py.utils import (register_zoneId_indexing,
                                    z7base7_to_z7int, z7int_to_z7base7)
+from xdggs_dggrid4py.dependences.grids import IGEO7Info
 from collections.abc import Hashable, Mapping
 
 
@@ -20,21 +22,20 @@ def _create_rangeinfo_per_chunk(chunk: da, refinement_level: int, chunk_id: int,
     ranges = np.array([[len(range_), range_[0], range_[-1]] for range_ in split])
     start_pos = np.cumsum(ranges[:, 0]) - ranges[:, 0] + (chunk_id * chunk_size)
     ranges[:, 0] = start_pos
-    return da.from_array(ranges)
+    return ranges
 
 
 # IGEO7RangeIndex: return a full zone IDs (z7 int) list from start and end of the range (z7int base7)
 @dask.delayed
-def _return_fullrange(start_id, stop_id, refinement_level):
-    fullrange_z7_zoneIds = np.arange(start_id, stop_id + 1)
-    fullrange_z7_zoneIds = z7base7_to_z7int(fullrange_z7_zoneIds, refinement_level)
-    return da.from_array(fullrange_z7_zoneIds)
+def _return_fullrange_per_chunk(chunk: da, refinement_level):
+    z7_zoneIds = np.array([np.arange(row[1], row[2] + 1) for row in chunk]).flatten()
+    return z7base7_to_z7int(z7_zoneIds, refinement_level)
 
 
 @register_zoneId_indexing(f"{__name__.split('.')[-1]}.RangeIndex")
 class IGEO7RangeIndex(xr.Index):
 
-    def __init__(self, ranges: da, refinement_level: int, dim='zone_id', coord_name=None):
+    def __init__(self, ranges: da, refinement_level: int, dim='cell_ids', coord_name=None):
         # The ranges array is in the form of [ [start position, start_range(z7base7), end_range(z7base7)], ...(other chunks) ]
         # where start = absolute start position of that chunk, the start and stop range of z7int in base7 for that chunk
         self.ranges = ranges
@@ -44,6 +45,11 @@ class IGEO7RangeIndex(xr.Index):
         self.size += 1 if ((self.ranges[-1][2] - self.ranges[-1][1]) == 0) else (self.ranges[-1][2] - self.ranges[-1][1])
         self.dim = dim
         self._name = coord_name if (coord_name is not None) else self.dim
+        self.rangesize_per_chunk = []
+        [range_size] = dask.compute(self.ranges[:, 2] - self.ranges[:, 1] + 1)
+        for chunk_size in self.ranges.chunks[0]:
+            self.rangesize_per_chunk.append(sum(range_size[:chunk_size]))
+            range_size = range_size[chunk_size:]
 
     # The function to locate the cooresponding z7 zone IDs(int) from array positions, that's what forward means
     def forward(self, dim_positions: dict[str, Any]) -> dict[Hashable, Any]:
@@ -125,6 +131,7 @@ class IGEO7RangeIndex(xr.Index):
         [chunk_rangeinfo] = dask.compute([_create_rangeinfo_per_chunk(chunk, refinement_level, i, chunk_size)
                                           for i, chunk in enumerate(array.to_delayed())])
 
+        # rechunk with size == 1 such that a chunk represent a range
         return cls(da.vstack(chunk_rangeinfo).rechunk('auto'), refinement_level, dim, name)
 
     @classmethod
@@ -147,15 +154,9 @@ class IGEO7RangeIndex(xr.Index):
         else:
             attrs = None
             encoding = None
-
-        chunk_arrays = [
-            da.from_delayed(
-                _return_fullrange(row[1], row[2], self.refinement_level),
-                shape=(row[2] - row[1] + 1,),
-                dtype="uint64"
-            )
-            for row in self.ranges
-        ]
+        chunk_arrays = [da.from_delayed(_return_fullrange_per_chunk(chunk, self.refinement_level),
+                                        shape=(self.rangesize_per_chunk[i],), dtype='uint64')
+                        for i, chunk in enumerate(self.ranges.to_delayed())]
         data = da.concatenate(chunk_arrays).rechunk('auto')
         var = xr.Variable(self.dim, data, attrs=attrs, encoding=encoding)
         return {name: var}
