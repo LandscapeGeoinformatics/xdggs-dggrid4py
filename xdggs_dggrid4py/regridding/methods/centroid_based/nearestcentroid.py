@@ -12,10 +12,49 @@ import numpy as np
 import geopandas as gpd
 import tempfile
 import shapely
-from pys2index import S2PointIndex
+from scipy.spatial import KDTree
 import os
 import warnings
 warnings.filterwarnings("ignore")
+
+
+class _SphericalPointIndex:
+    """Minimal spherical nearest-neighbour index, drop-in for pys2index.S2PointIndex.
+
+    Points are passed as ``(lat, lon)`` degree pairs (matching the original
+    S2PointIndex API as used in this plugin). They are projected to the unit
+    sphere (Cartesian x, y, z) and queried with a scipy KDTree on chord
+    distance, which is monotonic with great-circle distance and therefore
+    yields the same nearest-neighbour ordering.
+
+    The ``.query(other)`` method returns ``(distances, indices)`` so callers
+    can keep using ``query(...)[1]`` unchanged.
+    """
+
+    @staticmethod
+    def _to_unit_sphere(lat_lon_deg: np.ndarray) -> np.ndarray:
+        # lat_lon_deg : (N, 2) array, columns = (lat_deg, lon_deg)
+        lat_rad = np.radians(lat_lon_deg[:, 0])
+        lon_rad = np.radians(lat_lon_deg[:, 1])
+        cos_lat = np.cos(lat_rad)
+        return np.column_stack((
+            cos_lat * np.cos(lon_rad),
+            cos_lat * np.sin(lon_rad),
+            np.sin(lat_rad),
+        ))
+
+    def __init__(self, lat_lon_deg: np.ndarray) -> None:
+        xyz = self._to_unit_sphere(np.asarray(lat_lon_deg, dtype=np.float64))
+        self._tree = KDTree(xyz)
+
+    def query(self, lat_lon_deg: np.ndarray):
+        xyz = self._to_unit_sphere(np.asarray(lat_lon_deg, dtype=np.float64))
+        return self._tree.query(xyz, k=1)
+
+
+# Public name kept for compatibility with any downstream code that may have
+# imported S2PointIndex from this module historically.
+S2PointIndex = _SphericalPointIndex
 
 
 @register_regridding_method

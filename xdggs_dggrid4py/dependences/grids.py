@@ -1,6 +1,7 @@
-from xdggs.grid import DGGSInfo
+from xdggs.grid import DGGSInfo, translate_parameters
+from xdggs.itertools import identity
 from typing import Any, ClassVar, Self
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import geopandas as gpd
 import numpy as np
 import os
@@ -49,10 +50,18 @@ GridsConfig = {'igeo7': {"refinement_level_range": range(0, 22),
                }
 
 
+_IGEO7_GRID_NAME = "IGEO7"
+
+
 @dataclass(frozen=True)
 class IGEO7Info(DGGSInfo):
-    grid_name: str
-    _dggrid_meta_config: dict
+    # kw_only avoids the Python 3.13 dataclass error where this non-default
+    # field would otherwise follow `ellipsoid` (which has a default in DGGSInfo).
+    # `grid_name` is intentionally NOT a field — upstream xdggs convention is
+    # that the index decorator (@register_dggs("igeo7")) carries the grid
+    # identity; xdggs.grid.translate_parameters explicitly drops "grid_name"
+    # when constructing Info objects.
+    _dggrid_meta_config: dict = field(kw_only=True)
     igeo7_wgs84_geodetic_conversion: bool = True
     igeo7_dggs_vert0_lon: decimal.Decimal | float = 11.20
     _dggrid = DGGRIDv8(dggrid_path, tempfile.mkdtemp(), silent=True, debug=False)
@@ -60,26 +69,51 @@ class IGEO7Info(DGGSInfo):
     valid_parameters: ClassVar[dict[str, Any]] = {"level": GridsConfig["igeo7"]["refinement_level_range"]}
 
     def __post_init__(self):
-        if (self.grid_name.lower() != 'igeo7'):
-            raise ValueError('Wrong grid_name for IGEO7Info.')
         if self.level not in self.valid_parameters["level"]:
             raise ValueError(f'level must be an integer between {GridsConfig["igeo7"]["refinement_level_range"]}.')
 
     @classmethod
     def from_dict(cls: type[Self], mapping: dict[str, Any]) -> Self:
-        params = {k: v for k, v in mapping.items()}
+        """Construct an IGEO7Info from an attribute mapping.
+
+        Mirrors the upstream xdggs ``H3Info.from_dict`` pattern: the input
+        mapping may contain unrelated CF metadata, alternative spellings, or
+        constructor-irrelevant keys; ``translate_parameters`` filters down to
+        the dataclass fields and casts each value. ``grid_name`` is dropped
+        upstream.
+
+        Accepts the legacy short attribute name ``_dggs_vert0_lon`` as an
+        alias for the canonical ``igeo7_dggs_vert0_lon``.
+        """
+        translations = {
+            "level":                            ("level", int),
+            "ellipsoid":                        ("ellipsoid", identity),
+            "grid_name":                        ("grid_name", str),  # filtered out in translate_parameters
+            "_dggrid_meta_config":              ("_dggrid_meta_config", identity),
+            "igeo7_wgs84_geodetic_conversion":  ("igeo7_wgs84_geodetic_conversion", bool),
+            "igeo7_dggs_vert0_lon":             ("igeo7_dggs_vert0_lon", float),
+            # Legacy alias kept for backward compatibility.
+            "_dggs_vert0_lon":                  ("igeo7_dggs_vert0_lon", float),
+        }
+        # Filter to only those keys we know about; translate_parameters errors
+        # on duplicate alias hits, which is the desired behaviour.
+        relevant = {k: v for k, v in mapping.items() if k in translations}
+        params = translate_parameters(relevant, translations)
         return cls(**params)
 
     def to_dict(self: Self) -> dict[str, Any]:
-        return {"level": self.level, "grid_name": self.grid_name,
-                "igeo7_wgs84_geodetic_conversion": self._wgs84_geodetic_conversion,
-                "igeo7_dggs_vert0_lon": self._dggs_vert0_lon}
+        return {
+            "grid_name":                       "igeo7",
+            "level":                           self.level,
+            "igeo7_wgs84_geodetic_conversion": self.igeo7_wgs84_geodetic_conversion,
+            "igeo7_dggs_vert0_lon":            float(self.igeo7_dggs_vert0_lon),
+        }
 
     def cell_ids2geographic(
         self, cell_ids: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         cell_ids_hex = vz7int_to_z7hex(cell_ids)
-        centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids_hex, self.grid_name.upper(), self.level,
+        centroids_df = self._dggrid.grid_cell_centroids_from_cellids(cell_ids_hex, _IGEO7_GRID_NAME, self.level,
                                                                      **self._dggrid_meta_config)
 
         centroids_df['name'] = centroids_df['name'].apply(int, base=16)
@@ -94,12 +128,12 @@ class IGEO7Info(DGGSInfo):
         geo_points = gpd.GeoSeries([shapely.Point(c[0], c[1]) for c in zip(lon, lat)])
         geo_points = _geodetic_to_authalic(geo_points, self.igeo7_wgs84_geodetic_conversion, polygon=False)
         geo_points = gpd.GeoDataFrame({'data': [0] * len(geo_points)}, geometry=geo_points, crs='wgs84')
-        geo_points = self._dggrid.cells_for_geo_points(geo_points, True, self.grid_name.upper(), self.level, **self._dggrid_meta_config)
+        geo_points = self._dggrid.cells_for_geo_points(geo_points, True, _IGEO7_GRID_NAME, self.level, **self._dggrid_meta_config)
         return geo_points['name'].apply(int, base=16).values
 
     def cell_boundaries(self, cell_ids, backend="shapely"):
         cell_ids_hex = vz7int_to_z7hex(cell_ids)
-        hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids_hex, self.grid_name.upper(),
+        hexagon_df = self._dggrid.grid_cell_polygons_from_cellids(cell_ids_hex, _IGEO7_GRID_NAME,
                                                                   self.level,
                                                                   **self._dggrid_meta_config)
         hexagon_df['name'] = hexagon_df['name'].apply(int, base=16)
