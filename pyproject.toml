@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "xdggs-dggrid4py"
-version = "0.2.0.dev0"
+version = "0.2.0.dev1"
 description = "A plugin for Xarray-xdggs that implements DGGRID as DGGS provider"
 authors = ["Wai Tik Chan <wai.tik.chan@ut.ee>", "Alexander Kmoch <alexander.kmoch@ut.ee>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-dggrid4py = "~0.5.2"
+dggrid4py = ">=0.5.2,<0.7"
 xarray = {extras = ["io"], version = ">=2025.1.2"}
 rasterio = "^1.4.3"
 rioxarray = ">=0.18.1"
