@@ -119,7 +119,12 @@ class IGEO7Info(DGGSInfo):
         centroids_df['name'] = centroids_df['name'].apply(int, base=16)
         centroids_df.set_index('name', inplace=True)
         centroids_df = centroids_df.loc[cell_ids]
-        centroids_df.geometry = _authalic_to_geodetic(centroids_df.geometry, self.igeo7_wgs84_geodetic_conversion, polygon=False)
+        # `_authalic_to_geodetic` returns a fresh-indexed GeoSeries; assigning
+        # it via the .geometry setter would realign by index and drop all rows
+        # (centroids_df's index is the cell_id, not 0..N-1). Pass numpy values
+        # to bypass alignment.
+        new_geom = _authalic_to_geodetic(centroids_df.geometry, self.igeo7_wgs84_geodetic_conversion, polygon=False)
+        centroids_df = centroids_df.set_geometry(np.asarray(new_geom.values))
         centroids = centroids_df.get_coordinates()
         return (centroids['x'].values, centroids['y'].values)
 
@@ -139,6 +144,9 @@ class IGEO7Info(DGGSInfo):
         hexagon_df['name'] = hexagon_df['name'].apply(int, base=16)
         hexagon_df.set_index('name', inplace=True)
         hexagon_df = hexagon_df.loc[cell_ids]
+        # `_authalic_to_geodetic` re-indexes from 0..N-1; we already
+        # selected the right rows via .loc, so we just take the geometry
+        # values back out without trying to re-align with hexagon_df.
         geometry = _authalic_to_geodetic(hexagon_df.geometry, self.igeo7_wgs84_geodetic_conversion, polygon=True)
         if (backend == "geoarrow"):
             return geometry.to_arrow()

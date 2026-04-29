@@ -28,6 +28,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from xdggs.index import DGGSIndex
+
 # z7py is on PYTHONPATH in this project; the plugin imports it lazily.
 from z7py.z7 import z7_to_monotonic_int, monotonic_int_to_z7
 import numba as nb
@@ -57,19 +59,16 @@ def _monotonic_int_to_z7_batch(values: np.ndarray, resolution: int) -> np.ndarra
 # ---------------------------------------------------------------------------
 
 
-class Z7MonotonicIndex(xr.Index):
-    """Lazy Z7 cell-id index backed by a (R, 2) monotonic-int range table."""
+class Z7MonotonicIndex(DGGSIndex):
+    """Lazy Z7 cell-id index backed by a (R, 2) monotonic-int range table.
 
-    __slots__ = (
-        "_dim",
-        "_level",
-        "_grid",
-        "_range_z7",          # (R, 2) uint64 — packed Z7 (start, end_inclusive)
-        "_range_start_mono",  # (R,)   uint64
-        "_range_end_mono",    # (R,)   uint64
-        "_data_offsets",      # (R+1,) uint64 — cumulative position of each range start
-        "_n_total",
-    )
+    Inherits from ``DGGSIndex`` so the ``ds.dggs`` accessor (which uses
+    ``isinstance(idx, DGGSIndex)`` to find a DGGS index) accepts us. We
+    deliberately do **not** call ``DGGSIndex.__init__`` because that would
+    construct a ``PandasIndex`` over the dense cell-ids array — exactly the
+    eager materialisation we are designed to avoid. All ``DGGSIndex``
+    methods that touch ``self._index`` are overridden below.
+    """
 
     def __init__(
         self,
@@ -78,6 +77,7 @@ class Z7MonotonicIndex(xr.Index):
         level: int,
         grid_info,
     ):
+        # NOTE: skip super().__init__ on purpose — see class docstring.
         range_z7 = np.ascontiguousarray(range_z7, dtype=np.uint64)
         if range_z7.ndim != 2 or range_z7.shape[1] != 2:
             raise ValueError(
@@ -87,6 +87,9 @@ class Z7MonotonicIndex(xr.Index):
         self._dim = dim
         self._level = int(level)
         self._grid = grid_info
+        # Sentinel — no PandasIndex backing. Anything that reaches for
+        # `self._index` is a bug in this class's overrides.
+        self._index = None
 
         if range_z7.size == 0:
             self._range_start_mono = np.empty(0, dtype=np.uint64)
