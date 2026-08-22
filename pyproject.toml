@@ -12,7 +12,7 @@ xarray = {extras = ["io"], version = ">=2025.1.2"}
 rasterio = "^1.4.3"
 rioxarray = ">=0.18.1"
 shapely = "^2.0.7"
-dask = "^2025.2.0"
+dask = ">=2025.7.0"
 zarr = "2.18.3"
 numcodecs = "^0.15.0"
 xdggs = ">=0.5.0,<0.6.0"
